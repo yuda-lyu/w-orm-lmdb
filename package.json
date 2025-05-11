@@ -1,0 +1,32 @@
+{
+  "name": "w-orm-lmdb",
+  "version": "1.0.1",
+  "main": "dist/w-orm-lmdb.umd.js",
+  "dependencies": {
+    "lodash-es": "^4.17.21",
+    "lmdb": "^3.3.0",
+    "mingo": "^6.6.1",
+    "wsemi": "^1.7.90"
+  },
+  "devDependencies": {
+    "w-package-tools": "^1.0.90"
+  },
+  "scripts": {
+    "test": "mocha --parallel --timeout 60000",
+    "deploy": "gh-pages -d docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuda-lyu/w-orm-lmdb.git"
+  },
+  "keywords": [
+    "package",
+    "tool",
+    "operator",
+    "lmdb",
+    "ORM",
+    "nodejs"
+  ],
+  "author": "yuda-lyu(semisphere)",
+  "license": "MIT"
+}
