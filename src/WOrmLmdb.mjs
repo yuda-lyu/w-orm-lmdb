@@ -13,7 +13,7 @@ import isearr from 'wsemi/src/isearr.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import haskey from 'wsemi/src/haskey.mjs'
 import evem from 'wsemi/src/evem.mjs'
-import genID from 'wsemi/src/genID.mjs'
+import genIDSeq from 'wsemi/src/genIDSeq.mjs'
 import pmSeries from 'wsemi/src/pmSeries.mjs'
 import waitFun from 'wsemi/src/waitFun.mjs'
 
@@ -192,7 +192,7 @@ function WOrmLmdb(opt = {}) {
             //check id
             data = map(data, function(v) {
                 if (!isestr(v.id)) {
-                    v.id = genID()
+                    v.id = genIDSeq()
                 }
                 return v
             })
@@ -279,7 +279,7 @@ function WOrmLmdb(opt = {}) {
             //check id
             data = map(data, function(v) {
                 if (!isestr(v.id)) {
-                    v.id = genID()
+                    v.id = genIDSeq()
                 }
                 return v
             })
