@@ -1,5 +1,6 @@
 import { open } from 'lmdb'
-import { Query } from 'mingo'
+// import mingo from 'mingo' //mingo內未更新import寫法, 會導致ERR_UNSUPPORTED_DIR_IMPORT, 故須改用require引入使用
+import mingo from './reqMingo.js'
 import size from 'lodash-es/size.js'
 import get from 'lodash-es/get.js'
 import each from 'lodash-es/each.js'
@@ -125,7 +126,7 @@ function WOrmLmdb(opt = {}) {
             if (iseobj(find)) {
 
                 //q
-                let q = new Query(find)
+                let q = new mingo.Query(find)
                 // console.log('q', q)
 
                 //find
@@ -471,7 +472,7 @@ function WOrmLmdb(opt = {}) {
             if (iseobj(find)) {
 
                 //q
-                let q = new Query(find)
+                let q = new mingo.Query(find)
                 // console.log('q', q)
 
                 //find
