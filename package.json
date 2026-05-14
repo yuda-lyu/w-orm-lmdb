@@ -1,15 +1,15 @@
 {
   "name": "w-orm-lmdb",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "main": "dist/w-orm-lmdb.umd.js",
   "dependencies": {
-    "lodash-es": "^4.17.21",
-    "lmdb": "^3.4.3",
-    "mingo": "^6.7.0",
-    "wsemi": "^1.8.22"
+    "lodash-es": "^4.18.1",
+    "lmdb": "^3.5.4",
+    "mingo": "^7.2.1",
+    "wsemi": "^1.8.52"
   },
   "devDependencies": {
-    "w-package-tools": "^1.1.2"
+    "w-package-tools": "^1.1.5"
   },
   "scripts": {
     "test": "mocha --parallel --timeout 60000",
