@@ -57,6 +57,14 @@ if (isWindows()) {
                 },
             ]
 
+            let rsa = [
+                {
+                    id: 'id-rosemary',
+                    name: 'rosemary',
+                    value: 654.321,
+                },
+            ]
+
             //wo
             let wo = WOrm(opt)
 
@@ -287,9 +295,28 @@ if (isWindows()) {
             //     })
             // vget[9] = rt
 
+            //save
+            rt = null
+            // vans[10] = [ { n: 1, nModified: 1, ok: 1 } ]
+            await wo.save(rsa, { autoInsert: true })
+                .then(function(msg) {
+                    // console.log('save then', msg)
+                    // save then [
+                    //   { n: 1, nModified: 1, ok: 1 },
+                    //   { n: 1, nModified: 1, ok: 1 },
+                    //   { n: 0, nModified: 0, ok: 1 }
+                    // ]
+                    rt = msg
+                })
+                .catch(function(msg) {
+                    // console.log('save catch', msg)
+                    rt = msg.toString()
+                })
+            vget[10] = rt
+
             //del
             rt = null
-            // vans[10] = [{ n: 1, nDeleted: 1, ok: 1 }]
+            // vans[11] = [{ n: 1, nDeleted: 1, ok: 1 }]
             let ss = await wo.select()
             let d = ss.filter(function(v) {
                 return v.name === 'kettle'
@@ -304,7 +331,7 @@ if (isWindows()) {
                     // console.log('del catch', msg)
                     rt = msg.toString()
                 })
-            vget[10] = rt
+            vget[11] = rt
 
         })
 
@@ -326,7 +353,7 @@ if (isWindows()) {
             { n: 1, nModified: 1, ok: 1 },
             { n: 0, nModified: 0, ok: 1 }
         ]
-        it(`should get ${JSON.stringify(vans[3])} for save`, async function() {
+        it(`should get ${JSON.stringify(vans[3])} for save(autoInsert=false)`, async function() {
             assert.strict.deepStrictEqual(vget[3], vans[3])
         })
 
@@ -385,9 +412,14 @@ if (isWindows()) {
         //     assert.strict.deepStrictEqual(vget[9], vans[9])
         // })
 
-        vans[10] = [{ n: 1, nDeleted: 1, ok: 1 }]
-        it(`should get ${JSON.stringify(vans[10])} for del`, async function() {
+        vans[10] = [{ n: 1, nModified: 1, ok: 1 }]
+        it(`should get ${JSON.stringify(vans[10])} for save(autoInsert=true)`, async function() {
             assert.strict.deepStrictEqual(vget[10], vans[10])
+        })
+
+        vans[11] = [{ n: 1, nDeleted: 1, ok: 1 }]
+        it(`should get ${JSON.stringify(vans[11])} for del`, async function() {
+            assert.strict.deepStrictEqual(vget[11], vans[11])
         })
 
     })

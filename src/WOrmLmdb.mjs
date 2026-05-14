@@ -317,8 +317,11 @@ function WOrmLmdb(opt = {}) {
                 //查找資料表內v.id
                 let vv = await getValue(v.id) //不會有catch
 
+                //existed
+                let existed = iseobj(vv)
+
                 //check
-                if (iseobj(vv)) {
+                if (existed) {
                     //已存在v.id
                     if (isEqual(v, vv)) {
                         //內容相同不更新
@@ -331,6 +334,9 @@ function WOrmLmdb(opt = {}) {
 
                         rest = { update: true }
                     }
+                }
+                else {
+                    //內容不存在
                 }
 
                 //rest
@@ -348,9 +354,13 @@ function WOrmLmdb(opt = {}) {
                         ok: 1,
                     }
                 }
+                //rest.n === 0:
+                // 內容相同不更新, 不須update
+                // 內容不存在, 若autoInsert則須insert
 
                 //autoInsert
-                if (autoInsert && rest.n === 0) {
+                if (autoInsert && rest.n === 0 && !existed) {
+                    // console.log('insert(v)', v)
                     rest = await insert(v)
                 }
 
