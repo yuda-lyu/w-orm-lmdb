@@ -635,12 +635,20 @@ function WOrmLmdb(opt = {}) {
         return res
     }
 
+    //close, 關閉內部LMDB env並釋放檔案鎖, close後該實例即報廢, 須重新new WOrmLmdb
+    let close = async () => {
+        if (client && client.status !== 'closed') {
+            await client.close() //lmdb root database之close(), 回傳Promise
+        }
+    }
+
     //save
     ee.select = select
     ee.insert = insert
     ee.save = save
     ee.del = del
     ee.delAll = delAll
+    ee.close = close
 
     return ee
 }
