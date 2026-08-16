@@ -1,6 +1,6 @@
 {
   "name": "w-orm-lmdb",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "main": "dist/w-orm-lmdb.umd.js",
   "dependencies": {
     "lmdb": "^3.5.6",
