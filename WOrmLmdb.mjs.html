@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmLmdb.html">WOrmLmdb</a><ul class='methods'><li data-type='method'><a href="WOrmLmdb.html#.del">del</a></li><li data-type='method'><a href="WOrmLmdb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmLmdb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmLmdb.html#.save">save</a></li><li data-type='method'><a href="WOrmLmdb.html#.select">select</a></li></ul></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmLmdb.html">WOrmLmdb</a><ul class='methods'><li data-type='method'><a href="WOrmLmdb.html#.del">del</a></li><li data-type='method'><a href="WOrmLmdb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmLmdb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmLmdb.html#.save">save</a></li><li data-type='method'><a href="WOrmLmdb.html#.select">select</a></li><li data-type='method'><a href="WOrmLmdb.html#.selectById">selectById</a></li></ul></li></ul>
     
 </nav>
 
@@ -129,13 +129,8 @@ function WOrmLmdb(opt = {}) {
             return cloneDeep(_cache) //與外部使用數據脫勾
         }
 
-        //waitFun
-        await waitFun(() => {
-            if (client.status === 'closed') {
-                console.log(`client.status[${client.status}], level is closed`)
-            }
-            return client.status === 'open'
-        })
+        //waitOpen
+        await waitOpen()
         // console.log('client.status',client.status)
 
         //ltdt
@@ -150,6 +145,16 @@ function WOrmLmdb(opt = {}) {
             return cloneDeep(ltdt) //與外部使用數據脫勾
         }
         return ltdt
+    }
+
+    //waitOpen, 等待client開啟, 因getRange與get於client關閉時會拋錯
+    let waitOpen = async () => {
+        await waitFun(() => {
+            if (client.status === 'closed') {
+                console.log(`client.status[${client.status}], level is closed`)
+            }
+            return client.status === 'open'
+        })
     }
 
     //getValue
@@ -224,6 +229,54 @@ function WOrmLmdb(opt = {}) {
     }
 
     /**
+     * 由主鍵id查詢單筆數據，因直接由LMDB取值，不需如select提取全表數據再過濾，故數據量大時效能較佳
+     *
+     * @memberOf WOrmLmdb
+     * @param {String} id 輸入主鍵字串
+     * @returns {Promise} 回傳Promise，resolve回傳數據物件，若無此id則回傳null，reject回傳錯誤訊息
+     */
+    async function selectById(id) {
+        let isErr = false
+        let res = null
+
+        try {
+
+            //check
+            if (!isestr(id)) {
+                //未給有效id視為查無數據
+                return null
+            }
+
+            //waitOpen
+            await waitOpen()
+
+            //查找資料表內id
+            let v = await getValue(id) //不會有catch
+
+            //check, 判定基準與insert、save、del內對既有數據之認定一致
+            if (iseobj(v)) {
+                res = v
+            }
+            else {
+                //不存在id, 回傳null
+                res = null
+            }
+
+        }
+        catch (err) {
+            isErr = true
+            res = err
+        }
+
+        //check
+        if (isErr) {
+            return Promise.reject(res)
+        }
+
+        return res
+    }
+
+    /**
      * 插入數據
      *
      * @memberOf WOrmLmdb
@@ -263,29 +316,29 @@ function WOrmLmdb(opt = {}) {
             })
 
             //each
+            //ifNoExists, 由LMDB於同一寫交易內原子完成[檢查v.id未存在]與[寫入], 併發時同一v.id僅有一次成功,
+            //同批含重複v.id時亦僅首筆成功, 故不逐筆await而一次送出, 由LMDB寫執行緒依序處理並合併為批次寫交易
+            //注意: 回調函數須為同步函數, 且client.put須於回調函數內直接呼叫,
+            //若將client.put置於await之後, 該寫入會逸出條件批次而變成無條件寫入, 並使回傳值與實際狀態不一致
             let nAll = size(data)
-            let nPush = 0
-            for (let v of data) {
+            let ltdone = await Promise.all(map(data, function(v) {
                 // console.log(v)
+                return client.ifNoExists(v.id, () => {
+                    client.put(v.id, v)
+                })
+            }))
 
-                //查找資料表內v.id
-                let vv = await getValue(v.id) //不會有catch
-                // console.log('getValue',vv)
-
-                //check
-                if (!iseobj(vv)) {
-                    //未存在v.id
-
-                    //put
-                    await client.put(v.id, v)
-
+            //nPush
+            let nPush = 0
+            each(ltdone, function(done) {
+                if (done) {
+                    //未存在v.id, 已寫入
                     nPush++
                 }
                 else {
                     //已存在v.id則不push
                 }
-
-            }
+            })
 
             //res
             res = {
@@ -370,33 +423,74 @@ function WOrmLmdb(opt = {}) {
                 //rest
                 let rest = null
 
-                //查找資料表內v.id
-                let vv = await getValue(v.id) //不會有catch
+                //快速路徑, 先不開寫交易直接預讀, 內容相同者本就不須寫入, 可省去開啟寫交易之成本
+                //預讀值縱使已被其他寫入者更動而過期亦不影響正確性, 因內容相同時本次save等價於無操作,
+                //無操作可視為於預讀當下即已完成, 其後他人之寫入結果與[本次save先執行再輪到他人]相同
+                let vp = await getValue(v.id) //不會有catch
+                if (iseobj(vp) &amp;&amp; isEqual(v, vp)) {
+                    //內容相同不更新
+                    return {
+                        n: 0,
+                        nModified: 0,
+                        ok: 1,
+                    }
+                }
 
-                //existed
-                let existed = iseobj(vv)
+                //existed, updated, inserted
+                let existed = false
+                let updated = false
+                let inserted = false
 
-                //check
-                if (existed) {
-                    //已存在v.id
-                    if (isEqual(v, vv)) {
-                        //內容相同不更新
+                //transaction, 由LMDB於同一寫交易內原子完成[查找v.id]與[合併寫入],
+                //併發時不會有兩方各自讀到同一舊值再各自寫入而導致遺失更新
+                //注意: 回調函數須為同步函數, client.get於寫交易內為同步取值, 不可使用await,
+                //若將client.get或client.put置於await之後, 該操作會逸出本交易而失去原子性
+                await client.transaction(() => {
+
+                    //查找資料表內v.id
+                    let vv = client.get(v.id)
+
+                    //existed
+                    existed = iseobj(vv)
+
+                    //check
+                    if (existed) {
+                        //已存在v.id
+                        if (isEqual(v, vv)) {
+                            //內容相同不更新
+                        }
+                        else {
+                            //內容不同須更新
+
+                            //merge and put
+                            client.put(v.id, merge(vv, v))
+
+                            updated = true
+                        }
                     }
                     else {
-                        //內容不同須更新
+                        //內容不存在, 若autoInsert則須插入
+                        if (autoInsert) {
 
-                        //merge and put
-                        await client.put(v.id, merge(vv, v))
+                            //put
+                            client.put(v.id, v)
 
-                        rest = { update: true }
+                            inserted = true
+                        }
                     }
-                }
-                else {
-                    //內容不存在
-                }
+
+                })
 
                 //rest
-                if (iseobj(rest)) {
+                if (inserted) {
+                    //內容不存在而自動插入, 回傳形狀同insert
+                    rest = {
+                        n: 1,
+                        nInserted: 1,
+                        ok: 1,
+                    }
+                }
+                else if (updated) {
                     rest = {
                         n: 1,
                         nModified: 1,
@@ -404,20 +498,33 @@ function WOrmLmdb(opt = {}) {
                     }
                 }
                 else {
+                    //rest.n === 0:
+                    // 內容相同不更新, 不須update
+                    // 內容不存在且未開啟autoInsert
                     rest = {
                         n: 0,
                         nModified: 0,
                         ok: 1,
                     }
                 }
-                //rest.n === 0:
-                // 內容相同不更新, 不須update
-                // 內容不存在, 若autoInsert則須insert
 
-                //autoInsert
-                if (autoInsert &amp;&amp; rest.n === 0 &amp;&amp; !existed) {
-                    // console.log('insert(v)', v)
-                    rest = await insert(v)
+                //emit, 原autoInsert係轉呼叫insert故會發出insert事件, 此處維持既有行為,
+                //須於交易外發出, 避免外部訂閱函數於寫交易內執行
+                if (inserted) {
+
+                    //update, 不能保證插入多少, 一律重設快取
+                    _cache = null
+
+                    try {
+
+                        //emit
+                        ee.emit('change', 'insert', [v], rest)
+
+                    }
+                    catch (err) {
+                        console.log(err)
+                    }
+
                 }
 
                 return rest
@@ -691,6 +798,7 @@ function WOrmLmdb(opt = {}) {
 
     //save
     ee.select = select
+    ee.selectById = selectById
     ee.insert = insert
     ee.save = save
     ee.del = del
@@ -716,7 +824,7 @@ export default WOrmLmdb
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sat Aug 08 2026 14:28:51 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sun Aug 16 2026 16:58:57 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
