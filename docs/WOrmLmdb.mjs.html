@@ -157,6 +157,15 @@ function WOrmLmdb(opt = {}) {
         })
     }
 
+    //getErrMsg, 取錯誤訊息字串, 供逐筆結果之err欄位使用
+    let getErrMsg = (err) => {
+        let m = get(err, 'message')
+        if (isestr(m)) {
+            return m
+        }
+        return String(err)
+    }
+
     //getValue
     let getValue = async (key) => {
         let value = null
@@ -281,7 +290,7 @@ function WOrmLmdb(opt = {}) {
      *
      * @memberOf WOrmLmdb
      * @param {Object|Array} data 輸入數據物件或陣列
-     * @returns {Promise} 回傳Promise，resolve回傳插入結果，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳插入結果物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數，reject回傳錯誤訊息
      */
     async function insert(data) {
         let isErr = false
@@ -384,7 +393,7 @@ function WOrmLmdb(opt = {}) {
      * @param {Object|Array} data 輸入數據物件或陣列
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {boolean} [option.autoInsert=true] 輸入是否於儲存時發現原本無數據，則自動改以插入處理，預設為true
-     * @returns {Promise} 回傳Promise，resolve回傳儲存結果，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數，單筆失敗者ok為0並附err，reject回傳錯誤訊息
      */
     async function save(data, option = {}) {
         let isErr = false
@@ -423,89 +432,118 @@ function WOrmLmdb(opt = {}) {
                 //rest
                 let rest = null
 
-                //快速路徑, 先不開寫交易直接預讀, 內容相同者本就不須寫入, 可省去開啟寫交易之成本
-                //預讀值縱使已被其他寫入者更動而過期亦不影響正確性, 因內容相同時本次save等價於無操作,
-                //無操作可視為於預讀當下即已完成, 其後他人之寫入結果與[本次save先執行再輪到他人]相同
-                let vp = await getValue(v.id) //不會有catch
-                if (iseobj(vp) &amp;&amp; isEqual(v, vp)) {
-                    //內容相同不更新
-                    return {
-                        n: 0,
-                        nModified: 0,
-                        ok: 1,
-                    }
-                }
-
-                //existed, updated, inserted
-                let existed = false
-                let updated = false
+                //inserted, 供emit使用
                 let inserted = false
 
-                //transaction, 由LMDB於同一寫交易內原子完成[查找v.id]與[合併寫入],
-                //併發時不會有兩方各自讀到同一舊值再各自寫入而導致遺失更新
-                //注意: 回調函數須為同步函數, client.get於寫交易內為同步取值, 不可使用await,
-                //若將client.get或client.put置於await之後, 該操作會逸出本交易而失去原子性
-                await client.transaction(() => {
+                try {
 
-                    //查找資料表內v.id
-                    let vv = client.get(v.id)
+                    //快速路徑, 先不開寫交易直接預讀, 內容相同者本就不須寫入, 可省去開啟寫交易之成本
+                    //預讀值縱使已被其他寫入者更動而過期亦不影響正確性, 因內容相同時本次save等價於無操作,
+                    //無操作可視為於預讀當下即已完成, 其後他人之寫入結果與[本次save先執行再輪到他人]相同
+                    //註: 預讀僅用於判斷是否略過寫入, 不用於決定寫入內容, 寫入內容一律由交易內讀到之現值決定
+                    let vp = await getValue(v.id) //不會有catch
+                    if (iseobj(vp) &amp;&amp; isEqual(merge({}, vp, v), vp)) {
+                        //合併後與現值相同不須寫入, 惟已命中v.id故n為1
+                        return {
+                            n: 1,
+                            nInserted: 0,
+                            nModified: 0,
+                            ok: 1,
+                        }
+                    }
 
-                    //existed
-                    existed = iseobj(vv)
+                    //existed, updated
+                    let existed = false
+                    let updated = false
 
-                    //check
-                    if (existed) {
-                        //已存在v.id
-                        if (isEqual(v, vv)) {
-                            //內容相同不更新
+                    //transaction, 由LMDB於同一寫交易內原子完成[查找v.id]與[合併寫入],
+                    //併發時不會有兩方各自讀到同一舊值再各自寫入而導致遺失更新
+                    //注意: 回調函數須為同步函數, client.get於寫交易內為同步取值, 不可使用await,
+                    //若將client.get或client.put置於await之後, 該操作會逸出本交易而失去原子性
+                    await client.transaction(() => {
+
+                        //查找資料表內v.id
+                        let vv = client.get(v.id)
+
+                        //existed
+                        existed = iseobj(vv)
+
+                        //check
+                        if (existed) {
+                            //已存在v.id
+
+                            //vm, 合併後之結果
+                            let vm = merge({}, vv, v)
+
+                            //判定基準為[合併後結果與現值相同], 而非[待寫入物件與現值全等],
+                            //令nModified忠實反映資料庫端是否真的寫入, 僅給部份欄位且值皆相同者不應回報已修改
+                            if (isEqual(vm, vv)) {
+                                //合併後與現值相同不須寫入
+                            }
+                            else {
+                                //合併後與現值不同須更新
+
+                                //put
+                                client.put(v.id, vm)
+
+                                updated = true
+                            }
                         }
                         else {
-                            //內容不同須更新
+                            //內容不存在, 若autoInsert則須插入
+                            if (autoInsert) {
 
-                            //merge and put
-                            client.put(v.id, merge(vv, v))
+                                //put
+                                client.put(v.id, v)
 
-                            updated = true
+                                inserted = true
+                            }
+                        }
+
+                    })
+
+                    //rest, nInserted與nModified恆存在, 無對應行為者給0
+                    if (inserted) {
+                        rest = {
+                            n: 1,
+                            nInserted: 1,
+                            nModified: 0,
+                            ok: 1,
+                        }
+                    }
+                    else if (updated) {
+                        rest = {
+                            n: 1,
+                            nInserted: 0,
+                            nModified: 1,
+                            ok: 1,
                         }
                     }
                     else {
-                        //內容不存在, 若autoInsert則須插入
-                        if (autoInsert) {
-
-                            //put
-                            client.put(v.id, v)
-
-                            inserted = true
+                        //未寫入, 有二:
+                        // 已存在v.id而內容相同不更新, 已命中故n為1
+                        // 不存在v.id且未開啟autoInsert, 未命中故n為0
+                        //n為v.id之命中筆數, 與nModified[實際更新筆數]分屬不同語義, 不可混用
+                        rest = {
+                            n: existed ? 1 : 0,
+                            nInserted: 0,
+                            nModified: 0,
+                            ok: 1,
                         }
                     }
 
-                })
+                }
+                catch (err) {
 
-                //rest
-                if (inserted) {
-                    //內容不存在而自動插入, 回傳形狀同insert
+                    //本筆失敗不中斷整批, 以ok為0並附err回報, 由呼叫端逐筆檢查
                     rest = {
                         n: 1,
-                        nInserted: 1,
-                        ok: 1,
-                    }
-                }
-                else if (updated) {
-                    rest = {
-                        n: 1,
-                        nModified: 1,
-                        ok: 1,
-                    }
-                }
-                else {
-                    //rest.n === 0:
-                    // 內容相同不更新, 不須update
-                    // 內容不存在且未開啟autoInsert
-                    rest = {
-                        n: 0,
+                        nInserted: 0,
                         nModified: 0,
-                        ok: 1,
+                        ok: 0,
+                        err: getErrMsg(err),
                     }
+
                 }
 
                 //emit, 原autoInsert係轉呼叫insert故會發出insert事件, 此處維持既有行為,
@@ -565,7 +603,7 @@ function WOrmLmdb(opt = {}) {
      *
      * @memberOf WOrmLmdb
      * @param {Object|Array} data 輸入數據物件或陣列
-     * @returns {Promise} 回傳Promise，resolve回傳刪除結果，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之刪除結果陣列，各筆為{n,nDeleted,ok}，n為主鍵命中筆數，單筆失敗或未給有效id者ok為0並附err，reject回傳錯誤訊息
      */
     async function del(data) {
         let isErr = false
@@ -593,21 +631,32 @@ function WOrmLmdb(opt = {}) {
                 //rest
                 let rest = null
 
-                //id
-                let id = get(v, 'id', '')
+                try {
 
-                //check
-                if (isestr(id)) {
+                    //id
+                    let id = get(v, 'id', '')
+
+                    //check
+                    if (!isestr(id)) {
+                        //未給有效v.id視為該筆數據有問題而無法處理, 以ok為0並附err回報,
+                        //與[已給v.id但查無數據]之ok為1有別, 二者須可由ok分辨
+                        return {
+                            n: 0,
+                            nDeleted: 0,
+                            ok: 0,
+                            err: `can not delete by invalid id[${id}]`,
+                        }
+                    }
 
                     //查找資料表內v.id
-                    let vv = await getValue(v.id) //不會有catch
+                    let vv = await getValue(id) //不會有catch
 
                     //check
                     if (iseobj(vv)) {
                         //已存在v.id則須刪除
 
                         //del
-                        await client.del(v.id)
+                        await client.del(id)
 
                         //rest
                         rest = {
@@ -618,11 +667,9 @@ function WOrmLmdb(opt = {}) {
 
                     }
                     else {
-                        //不存在v.id則不刪除
-
-                        //rest
+                        //不存在v.id則不刪除, 未命中故n為0
                         rest = {
-                            n: 1,
+                            n: 0,
                             nDeleted: 0,
                             ok: 1,
                         }
@@ -630,14 +677,14 @@ function WOrmLmdb(opt = {}) {
                     }
 
                 }
-                else {
-                    //未給v.id則不刪除
+                catch (err) {
 
-                    //rest
+                    //本筆失敗不中斷整批, 以ok為0並附err回報, 由呼叫端逐筆檢查
                     rest = {
                         n: 1,
                         nDeleted: 0,
-                        ok: 0, //未給v.id視為有問題數據, 故ok給0
+                        ok: 0,
+                        err: getErrMsg(err),
                     }
 
                 }
@@ -680,7 +727,7 @@ function WOrmLmdb(opt = {}) {
      *
      * @memberOf WOrmLmdb
      * @param {Object} [find={}] 輸入刪除條件物件
-     * @returns {Promise} 回傳Promise，resolve回傳刪除結果，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳刪除結果物件{n,nDeleted,ok}，n與nDeleted同為實際刪除筆數，reject回傳錯誤訊息
      */
     async function delAll(find = {}) {
         let isErr = false
@@ -752,9 +799,9 @@ function WOrmLmdb(opt = {}) {
 
             }
 
-            //res
+            //res, n為實際刪除筆數而非全表筆數, 故與nDeleted同值
             res = {
-                n: nAll,
+                n: nDel,
                 nDeleted: nDel,
                 ok: 1,
             }
@@ -824,7 +871,7 @@ export default WOrmLmdb
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sun Aug 16 2026 16:58:57 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sun Aug 16 2026 21:38:34 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

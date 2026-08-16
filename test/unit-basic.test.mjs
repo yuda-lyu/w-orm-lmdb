@@ -110,17 +110,17 @@ describe('basic', function() {
         //save
         rt = null
         // vans[3] = [
-        //     { n: 1, nModified: 1, ok: 1 },
-        //     { n: 1, nModified: 1, ok: 1 },
-        //     { n: 0, nModified: 0, ok: 1 }
+        //     { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+        //     { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+        //     { n: 0, nInserted: 0, nModified: 0, ok: 1 }
         // ]
         await wo.save(rsm, { autoInsert: false })
             .then(function(msg) {
                 // console.log('save then', msg)
                 // save then [
-                //   { n: 1, nModified: 1, ok: 1 },
-                //   { n: 1, nModified: 1, ok: 1 },
-                //   { n: 0, nModified: 0, ok: 1 }
+                //   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+                //   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+                //   { n: 0, nInserted: 0, nModified: 0, ok: 1 }
                 // ]
                 rt = msg
             })
@@ -322,14 +322,14 @@ describe('basic', function() {
 
         //save
         rt = null
-        // vans[10] = [ { n: 1, nModified: 1, ok: 1 } ]
+        // vans[10] = [ { n: 1, nInserted: 0, nModified: 1, ok: 1 } ]
         await wo.save(rsa, { autoInsert: true })
             .then(function(msg) {
                 // console.log('save then', msg)
                 // save then [
-                //   { n: 1, nModified: 1, ok: 1 },
-                //   { n: 1, nModified: 1, ok: 1 },
-                //   { n: 0, nModified: 0, ok: 1 }
+                //   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+                //   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+                //   { n: 0, nInserted: 0, nModified: 0, ok: 1 }
                 // ]
                 rt = msg
             })
@@ -374,9 +374,9 @@ describe('basic', function() {
     })
 
     vans[3] = [
-        { n: 1, nModified: 1, ok: 1 },
-        { n: 1, nModified: 1, ok: 1 },
-        { n: 0, nModified: 0, ok: 1 }
+        { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+        { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+        { n: 0, nInserted: 0, nModified: 0, ok: 1 }
     ]
     it(`should get ${JSON.stringify(vans[3])} for save(autoInsert=false)`, async function() {
         assert.strict.deepStrictEqual(vget[3], vans[3])
@@ -448,7 +448,7 @@ describe('basic', function() {
     //     assert.strict.deepStrictEqual(vget[9], vans[9])
     // })
 
-    vans[10] = [{ n: 1, nModified: 1, ok: 1 }]
+    vans[10] = [{ n: 1, nInserted: 0, nModified: 1, ok: 1 }]
     it(`should get ${JSON.stringify(vans[10])} for save(autoInsert=true)`, async function() {
         assert.strict.deepStrictEqual(vget[10], vans[10])
     })

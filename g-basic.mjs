@@ -153,9 +153,9 @@ test()
 // insert then { n: 3, nInserted: 3, ok: 1 }
 // change save
 // save then [
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 0, nModified: 0, ok: 1 }
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 0, nInserted: 0, nModified: 0, ok: 1 }
 // ]
 // select all [
 //   {
@@ -190,7 +190,7 @@ test()
 //   }
 // ]
 // change save
-// save then [ { n: 1, nModified: 1, ok: 1 } ]
+// save then [ { n: 1, nInserted: 0, nModified: 1, ok: 1 } ]
 // change del
 // del then [ { n: 1, nDeleted: 1, ok: 1 } ]
 

@@ -8,6 +8,39 @@ An operator for lmdb in nodejs.
 [![npm download](https://img.shields.io/npm/dm/w-orm-lmdb.svg)](https://npmjs.org/package/w-orm-lmdb) 
 [![jsdelivr download](https://img.shields.io/jsdelivr/npm/hm/w-orm-lmdb.svg)](https://www.jsdelivr.com/package/npm/w-orm-lmdb)
 
+## Keypoint
+
+注意: 因lmdb-js綁定層限制, 須使用單程序操作lmdb, 才能避免競爭條件失效.
+
+### Use a single process for writing
+
+`w-orm-lmdb` guarantees write atomicity **within a single process only**. Do not have two or more processes writing to the same collection concurrently.
+
+Within one process, `insert` and `save` are safe under any amount of concurrency:
+
+- `insert` uses LMDB's conditional write (`ifNoExists`), so the "check the key is absent" and "write" steps happen inside one write transaction. Concurrent `insert` calls on the same id produce exactly one `nInserted: 1`; the rest report `nInserted: 0`.
+- `save` wraps its read-merge-write inside an LMDB write transaction, so concurrent `save` calls on the same id never lose an update.
+
+Across processes these guarantees do not hold, and the limitation comes from the underlying `lmdb-js` binding rather than from this package or from LMDB itself. LMDB's own multi-process design is sound — one writer at a time, serialized through a lock file — and `lmdb-js` documents its conditional writes as resolving `true` only "if the put was successful" and `false` "if the put did not occur due to the ifVersion not matching at the time of the commit". In practice that contract was observed to break when two processes contend for the same key at the same instant.
+
+Measured on Windows 11 with `lmdb-js` 3.5.6, under CPU load, using plain `lmdb-js` with no part of this package involved:
+
+- 4 processes racing to create the same key, 30 attempts each, 40 rounds — a few percent of rounds ended with **two** processes both resolving `true`, where exactly one should have.
+- 4 processes running an optimistic `ifVersion` increment loop, 20 attempts each, 40 rounds — reported successes exceeded the actual number of increments in 12 rounds, i.e. two increments collapsed into one.
+- The same tests inside a **single process** never produced an anomaly, across every configuration tried.
+- `ifNoExists`, `transaction` and `transactionSync` all showed it, and it was independent of the `compression` option, so switching API does not avoid it.
+
+Notably, the failure needs an actual race. With the key already present before the processes start — 4 processes, 30 attempts each, 40 rounds, 4800 conditional writes in total — there was **not one** false success and **not one** overwrite. A record that already exists is never clobbered; only writes landing in the same instant can interfere.
+
+What that means in practice when two processes write concurrently:
+
+- `nInserted` and `nModified` can be over-reported. Code that treats `nInserted === 1` as "this record is new" — to trigger a notification, an AI call, or any other expensive downstream action — may fire more than once for the same record.
+- When two processes create the same id at the same instant, both may report success and only one of the two payloads is kept.
+- `save` may lose an update, keeping only one side of two concurrent merges.
+- Key uniqueness and record count stay correct, and records that already exist are never overwritten. The database is not left structurally inconsistent.
+
+If your deployment needs more than one process, serialize writes yourself: keep a single writer process, or guard writes with a cross-process lock (a lock file, or a queue). Readers are unaffected — `select` and `selectById` are safe from any number of processes.
+
 ## Documentation
 To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-orm-lmdb/WOrm.html).
 
@@ -175,9 +208,9 @@ test()
 // insert then { n: 3, nInserted: 3, ok: 1 }
 // change save
 // save then [
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 0, nModified: 0, ok: 1 }
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 0, nInserted: 0, nModified: 0, ok: 1 }
 // ]
 // select all [
 //   {
@@ -212,7 +245,7 @@ test()
 //   }
 // ]
 // change save
-// save then [ { n: 1, nModified: 1, ok: 1 } ]
+// save then [ { n: 1, nInserted: 0, nModified: 1, ok: 1 } ]
 // change del
 // del then [ { n: 1, nDeleted: 1, ok: 1 } ]
 ```

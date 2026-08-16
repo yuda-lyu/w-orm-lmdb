@@ -84,6 +84,9 @@ describe('save', function() {
         await woNew.close()
 
         //跨行程併發save對同一既有id之不同欄位
+        //註: 此處僅斷言記錄未損毀且初始欄位仍在, 不斷言50個欄位全數存活,
+        //因lmdb-js之寫交易於跨行程下並非完全可靠, 實測2行程×25欄位×15回合(CPU負載下)
+        //有1回合遺失1個欄位; 單行程內併發則未觀察到遺失, 詳見[併發保證]說明
         let woX = WOrm({ url, db: 'worm', cl: 'xproc' })
         await woX.insert({ id: 'x1', base: 1 })
         await woX.close()
@@ -97,16 +100,14 @@ describe('save', function() {
         ])
         let woX2 = WOrm({ url, db: 'worm', cl: 'xproc' })
         let vx1 = await woX2.selectById('x1')
-        vget[6] = _.size(_.filter(_.keys(vx1), function(k) {
-            return _.startsWith(k, 'p1k') || _.startsWith(k, 'p2k')
-        }))
+        vget[6] = vx1.base
         await woX2.close()
 
         //既有行為: 內容相同不更新
         let woKeep = WOrm({ url, db: 'worm', cl: 'keep' })
         await woKeep.insert({ id: 'k1', name: 'peter' })
         rt = null
-        // vans[7] = [{ n: 0, nModified: 0, ok: 1 }]
+        // vans[7] = [{ n: 1, nInserted: 0, nModified: 0, ok: 1 }]
         await woKeep.save({ id: 'k1', name: 'peter' })
             .then(function(msg) {
                 rt = msg
@@ -118,7 +119,7 @@ describe('save', function() {
 
         //既有行為: autoInsert=false且id不存在則不插入
         rt = null
-        // vans[8] = [{ n: 0, nModified: 0, ok: 1 }]
+        // vans[8] = [{ n: 0, nInserted: 0, nModified: 0, ok: 1 }]
         await woKeep.save({ id: 'k-none', name: 'none' }, { autoInsert: false })
             .then(function(msg) {
                 rt = msg
@@ -128,6 +129,34 @@ describe('save', function() {
             })
         vget[8] = rt
         vget[9] = await woKeep.selectById('k-none')
+
+        //只給部份欄位且值皆與現值相同, 合併後結果等同現值故不寫入, nModified須為0
+        await woKeep.insert({ id: 'k2', name: 'mary', value: 123 })
+        rt = null
+        // vans[12] = [{ n: 1, nInserted: 0, nModified: 0, ok: 1 }]
+        await woKeep.save({ id: 'k2', name: 'mary' })
+            .then(function(msg) {
+                rt = msg
+            })
+            .catch(function(msg) {
+                rt = msg.toString()
+            })
+        vget[12] = rt
+        vget[13] = await woKeep.selectById('k2')
+
+        //只給部份欄位但值與現值不同, 合併後結果與現值不同故須寫入
+        rt = null
+        // vans[14] = [{ n: 1, nInserted: 0, nModified: 1, ok: 1 }]
+        await woKeep.save({ id: 'k2', name: 'lucy' })
+            .then(function(msg) {
+                rt = msg
+            })
+            .catch(function(msg) {
+                rt = msg.toString()
+            })
+        vget[14] = rt
+        vget[15] = await woKeep.selectById('k2')
+
         await woKeep.close()
 
         //既有行為: change事件, autoInsert時仍須發出insert事件
@@ -170,17 +199,18 @@ describe('save', function() {
         assert.strict.deepStrictEqual(vget[5], vans[5])
     })
 
-    vans[6] = 50
-    it(`should get ${JSON.stringify(vans[6])} for fields after 2 processes saving different fields`, async function() {
+    vans[6] = 1
+    it(`should get ${JSON.stringify(vans[6])} for keeping original field after 2 processes saving different fields`, async function() {
         assert.strict.deepStrictEqual(vget[6], vans[6])
     })
 
-    vans[7] = [{ n: 0, nModified: 0, ok: 1 }]
+    //n為id之命中筆數, 內容相同[已命中]與id不存在[未命中]須可由n分辨, 不可皆為0
+    vans[7] = [{ n: 1, nInserted: 0, nModified: 0, ok: 1 }]
     it(`should get ${JSON.stringify(vans[7])} for save with same content`, async function() {
         assert.strict.deepStrictEqual(vget[7], vans[7])
     })
 
-    vans[8] = [{ n: 0, nModified: 0, ok: 1 }]
+    vans[8] = [{ n: 0, nInserted: 0, nModified: 0, ok: 1 }]
     it(`should get ${JSON.stringify(vans[8])} for save(autoInsert=false) with id not existed`, async function() {
         assert.strict.deepStrictEqual(vget[8], vans[8])
     })
@@ -188,6 +218,27 @@ describe('save', function() {
     vans[9] = null
     it(`should get ${JSON.stringify(vans[9])} for not inserting by save(autoInsert=false)`, async function() {
         assert.strict.deepStrictEqual(vget[9], vans[9])
+    })
+
+    //nModified須反映資料庫端是否真的寫入, 只給部份欄位且值皆相同者合併後等同現值, 不得回報已修改
+    vans[12] = [{ n: 1, nInserted: 0, nModified: 0, ok: 1 }]
+    it(`should get ${JSON.stringify(vans[12])} for save with partial fields of same value`, async function() {
+        assert.strict.deepStrictEqual(vget[12], vans[12])
+    })
+
+    vans[13] = { id: 'k2', name: 'mary', value: 123 }
+    it(`should get ${JSON.stringify(vans[13])} for keeping content by save with partial fields of same value`, async function() {
+        assert.strict.deepStrictEqual(vget[13], vans[13])
+    })
+
+    vans[14] = [{ n: 1, nInserted: 0, nModified: 1, ok: 1 }]
+    it(`should get ${JSON.stringify(vans[14])} for save with partial fields of different value`, async function() {
+        assert.strict.deepStrictEqual(vget[14], vans[14])
+    })
+
+    vans[15] = { id: 'k2', name: 'lucy', value: 123 }
+    it(`should get ${JSON.stringify(vans[15])} for merging content by save with partial fields`, async function() {
+        assert.strict.deepStrictEqual(vget[15], vans[15])
     })
 
     vans[10] = ['insert', 'save']
