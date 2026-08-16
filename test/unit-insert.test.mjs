@@ -85,7 +85,7 @@ describe('insert', function() {
         vget[1] = rt
 
         //同批重複id時應保留首筆內容
-        vget[2] = await woDup.selectById('id-dup')
+        vget[2] = await woDup.selectByPk('id-dup')
 
         //對已存在id再insert, 應不插入且不覆寫
         rt = null
@@ -98,7 +98,7 @@ describe('insert', function() {
                 rt = msg.toString()
             })
         vget[3] = rt
-        vget[4] = await woDup.selectById('id-dup')
+        vget[4] = await woDup.selectByPk('id-dup')
         await woDup.close()
 
         //單行程併發: 對同一id併發insert 100次, nInserted總和須為1

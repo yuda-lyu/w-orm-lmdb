@@ -184,32 +184,32 @@ describe('basic', function() {
             })
         vget[5] = rt
 
-        //selectById
+        //selectByPk
         rt = null
         // vans[12] = { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
-        await wo.selectById('id-rosemary')
+        await wo.selectByPk('id-rosemary')
             .then(function(msg) {
-                // console.log('selectById then', msg)
-                // selectById { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+                // console.log('selectByPk then', msg)
+                // selectByPk { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
                 rt = msg
             })
             .catch(function(msg) {
-                // console.log('selectById catch', msg)
+                // console.log('selectByPk catch', msg)
                 rt = msg.toString()
             })
         vget[12] = rt
 
-        //selectById by id not existed
+        //selectByPk by pk not existed
         rt = null
         // vans[13] = null
-        await wo.selectById('id-not-existed')
+        await wo.selectByPk('id-not-existed')
             .then(function(msg) {
-                // console.log('selectById by id not existed then', msg)
-                // selectById by id not existed null
+                // console.log('selectByPk by pk not existed then', msg)
+                // selectByPk by pk not existed null
                 rt = msg
             })
             .catch(function(msg) {
-                // console.log('selectById by id not existed catch', msg)
+                // console.log('selectByPk by pk not existed catch', msg)
                 rt = msg.toString()
             })
         vget[13] = rt
@@ -400,14 +400,14 @@ describe('basic', function() {
         assert.strict.deepStrictEqual(vget[5], vans[5])
     })
 
-    //vans[12]、vans[13]為後續新增之selectById, 為不更動既有編號故接續於末號之後
+    //vans[12]、vans[13]為後續新增之selectByPk, 為不更動既有編號故接續於末號之後
     vans[12] = { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
-    it(`should get ${JSON.stringify(vans[12])} for selectById`, async function() {
+    it(`should get ${JSON.stringify(vans[12])} for selectByPk`, async function() {
         assert.strict.deepStrictEqual(vget[12], vans[12])
     })
 
     vans[13] = null
-    it(`should get ${JSON.stringify(vans[13])} for selectById by id not existed`, async function() {
+    it(`should get ${JSON.stringify(vans[13])} for selectByPk by pk not existed`, async function() {
         assert.strict.deepStrictEqual(vget[13], vans[13])
     })
 

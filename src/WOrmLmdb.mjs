@@ -191,36 +191,37 @@ function WOrmLmdb(opt = {}) {
     }
 
     /**
-     * 由主鍵id查詢單筆數據，因直接由LMDB取值，不需如select提取全表數據再過濾，故數據量大時效能較佳
+     * 由主鍵查詢單筆數據，因直接由LMDB取值，不需如select提取全表數據再過濾，故數據量大時效能較佳
+     * 註: 本套件之主鍵欄位固定為id，尚未支援指定其他欄位為主鍵
      *
      * @memberOf WOrmLmdb
-     * @param {String} id 輸入主鍵字串
-     * @returns {Promise} 回傳Promise，resolve回傳數據物件，若無此id則回傳null，reject回傳錯誤訊息
+     * @param {String} pk 輸入主鍵值字串，本套件之主鍵欄位為id
+     * @returns {Promise} 回傳Promise，resolve回傳數據物件，若無此主鍵則回傳null，reject回傳錯誤訊息
      */
-    async function selectById(id) {
+    async function selectByPk(pk) {
         let isErr = false
         let res = null
 
         try {
 
             //check
-            if (!isestr(id)) {
-                //未給有效id視為查無數據
+            if (!isestr(pk)) {
+                //未給有效主鍵值視為查無數據
                 return null
             }
 
             //waitOpen
             await waitOpen()
 
-            //查找資料表內id
-            let v = await getValue(id) //不會有catch
+            //查找資料表內pk
+            let v = await getValue(pk) //不會有catch
 
             //check, 判定基準與insert、save、del內對既有數據之認定一致
             if (iseobj(v)) {
                 res = v
             }
             else {
-                //不存在id, 回傳null
+                //不存在此主鍵, 回傳null
                 res = null
             }
 
@@ -798,7 +799,7 @@ function WOrmLmdb(opt = {}) {
 
     //save
     ee.select = select
-    ee.selectById = selectById
+    ee.selectByPk = selectByPk
     ee.insert = insert
     ee.save = save
     ee.del = del

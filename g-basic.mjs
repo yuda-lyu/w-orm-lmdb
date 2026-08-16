@@ -99,13 +99,13 @@ async function test() {
     let so = await wo.select({ id: 'id-rosemary' })
     console.log('select', so)
 
-    //selectById
-    let sb = await wo.selectById('id-rosemary')
-    console.log('selectById', sb)
+    //selectByPk
+    let sb = await wo.selectByPk('id-rosemary')
+    console.log('selectByPk', sb)
 
-    //selectById by id not existed
-    let sbn = await wo.selectById('id-not-existed')
-    console.log('selectById by id not existed', sbn)
+    //selectByPk by pk not existed
+    let sbn = await wo.selectByPk('id-not-existed')
+    console.log('selectByPk by pk not existed', sbn)
 
     //select by $and, $gt, $lt
     let spa = await wo.select({ '$and': [{ value: { '$gt': 123 } }, { value: { '$lt': 200 } }] })
@@ -167,8 +167,8 @@ test()
 //   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
 // ]
 // select [ { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 } ]
-// selectById { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
-// selectById by id not existed null
+// selectByPk { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// selectByPk by pk not existed null
 // select by $and, $gt, $lt [ { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 } ]
 // select by $or, $gte, $lte [
 //   {

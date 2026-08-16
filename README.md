@@ -39,7 +39,7 @@ What that means in practice when two processes write concurrently:
 - `save` may lose an update, keeping only one side of two concurrent merges.
 - Key uniqueness and record count stay correct, and records that already exist are never overwritten. The database is not left structurally inconsistent.
 
-If your deployment needs more than one process, serialize writes yourself: keep a single writer process, or guard writes with a cross-process lock (a lock file, or a queue). Readers are unaffected — `select` and `selectById` are safe from any number of processes.
+If your deployment needs more than one process, serialize writes yourself: keep a single writer process, or guard writes with a cross-process lock (a lock file, or a queue). Readers are unaffected — `select` and `selectByPk` are safe from any number of processes.
 
 ## Documentation
 To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-orm-lmdb/WOrm.html).
@@ -154,13 +154,13 @@ async function test() {
     let so = await wo.select({ id: 'id-rosemary' })
     console.log('select', so)
 
-    //selectById
-    let sb = await wo.selectById('id-rosemary')
-    console.log('selectById', sb)
+    //selectByPk
+    let sb = await wo.selectByPk('id-rosemary')
+    console.log('selectByPk', sb)
 
-    //selectById by id not existed
-    let sbn = await wo.selectById('id-not-existed')
-    console.log('selectById by id not existed', sbn)
+    //selectByPk by pk not existed
+    let sbn = await wo.selectByPk('id-not-existed')
+    console.log('selectByPk by pk not existed', sbn)
 
     //select by $and, $gt, $lt
     let spa = await wo.select({ '$and': [{ value: { '$gt': 123 } }, { value: { '$lt': 200 } }] })
@@ -222,8 +222,8 @@ test()
 //   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
 // ]
 // select [ { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 } ]
-// selectById { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
-// selectById by id not existed null
+// selectByPk { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// selectByPk by pk not existed null
 // select by $and, $gt, $lt [ { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 } ]
 // select by $or, $gte, $lte [
 //   {

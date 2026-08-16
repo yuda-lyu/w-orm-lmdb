@@ -61,7 +61,7 @@ describe('save', function() {
         await Promise.all(_.times(10, function(k) {
             return woMerge.save({ id: 'u1', [`f${k}`]: k })
         }))
-        let vu1 = await woMerge.selectById('u1')
+        let vu1 = await woMerge.selectByPk('u1')
         vget[1] = _.size(_.filter(_.keys(vu1), function(k) {
             return _.startsWith(k, 'f')
         }))
@@ -75,7 +75,7 @@ describe('save', function() {
             woNew.save({ id: 'w1', fb: 2 }),
             woNew.save({ id: 'w1', fc: 3 }),
         ])
-        let vw1 = await woNew.selectById('w1')
+        let vw1 = await woNew.selectByPk('w1')
         vget[3] = _.pick(vw1, ['id', 'fa', 'fb', 'fc'])
         vget[4] = _.size(await woNew.select())
         vget[5] = _.size(_.filter(_.flatten(rsn), function(v) {
@@ -99,7 +99,7 @@ describe('save', function() {
             })),
         ])
         let woX2 = WOrm({ url, db: 'worm', cl: 'xproc' })
-        let vx1 = await woX2.selectById('x1')
+        let vx1 = await woX2.selectByPk('x1')
         vget[6] = vx1.base
         await woX2.close()
 
@@ -128,7 +128,7 @@ describe('save', function() {
                 rt = msg.toString()
             })
         vget[8] = rt
-        vget[9] = await woKeep.selectById('k-none')
+        vget[9] = await woKeep.selectByPk('k-none')
 
         //只給部份欄位且值皆與現值相同, 合併後結果等同現值故不寫入, nModified須為0
         await woKeep.insert({ id: 'k2', name: 'mary', value: 123 })
@@ -142,7 +142,7 @@ describe('save', function() {
                 rt = msg.toString()
             })
         vget[12] = rt
-        vget[13] = await woKeep.selectById('k2')
+        vget[13] = await woKeep.selectByPk('k2')
 
         //只給部份欄位但值與現值不同, 合併後結果與現值不同故須寫入
         rt = null
@@ -155,7 +155,7 @@ describe('save', function() {
                 rt = msg.toString()
             })
         vget[14] = rt
-        vget[15] = await woKeep.selectById('k2')
+        vget[15] = await woKeep.selectByPk('k2')
 
         await woKeep.close()
 
