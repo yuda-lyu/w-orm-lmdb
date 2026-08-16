@@ -29,6 +29,7 @@ import waitFun from 'wsemi/src/waitFun.mjs'
  * @param {String} [opt.db='worm'] 輸入使用資料庫名稱字串，預設'worm'
  * @param {String} [opt.cl='test'] 輸入使用資料表名稱字串，預設'test'
  * @param {Boolean} [opt.useCache=false] 輸入是否使用select快取，適用於單程序操作，預設false
+ * @param {Boolean} [opt.autoGenPk=true] 輸入insert與save於數據未帶有效主鍵(本套件為id欄位)時是否自動產生主鍵值，預設true；給false代表主鍵改由呼叫端自備，套件不產生亦不檢查其唯一性與格式，未帶有效主鍵者將reject
  * @returns {Object} 回傳操作資料庫物件，各事件功能詳見說明
  */
 function WOrmLmdb(opt = {}) {
@@ -58,6 +59,13 @@ function WOrmLmdb(opt = {}) {
     let useCache = get(opt, 'useCache')
     if (!isbol(useCache)) {
         useCache = false
+    }
+
+    //autoGenPk, 主鍵由誰產生為整個資料表之政策, 故為建構層設定, 不可於insert與save之option逐次覆寫,
+    //否則同一資料表將混入兩種來源之主鍵而難以追溯
+    let autoGenPk = get(opt, 'autoGenPk')
+    if (!isbol(autoGenPk)) {
+        autoGenPk = true
     }
 
     //storage
@@ -117,6 +125,26 @@ function WOrmLmdb(opt = {}) {
             return m
         }
         return String(err)
+    }
+
+    //procPk, 依autoGenPk處理各數據之主鍵, 供insert與save共用
+    //autoGenPk為true時補值; 為false時不補值, 未帶有效主鍵者屬呼叫端未履行契約, 拋出為整批性錯誤,
+    //且檢查於任何寫入之前完成, 故不會有部份筆數已寫入而整批失敗之情形
+    let procPk = (data, fnName) => {
+        if (autoGenPk) {
+            return map(data, function(v) {
+                if (!isestr(v.id)) {
+                    v.id = genIDSeq()
+                }
+                return v
+            })
+        }
+        each(data, function(v, k) {
+            if (!isestr(get(v, 'id'))) {
+                throw new Error(`can not ${fnName} by data[${k}] without valid id when autoGenPk is false`)
+            }
+        })
+        return data
     }
 
     //getValue
@@ -271,12 +299,7 @@ function WOrmLmdb(opt = {}) {
             }
 
             //check id
-            data = map(data, function(v) {
-                if (!isestr(v.id)) {
-                    v.id = genIDSeq()
-                }
-                return v
-            })
+            data = procPk(data, 'insert')
 
             //each
             //ifNoExists, 由LMDB於同一寫交易內原子完成[檢查v.id未存在]與[寫入], 併發時同一v.id僅有一次成功,
@@ -373,12 +396,7 @@ function WOrmLmdb(opt = {}) {
             }
 
             //check id
-            data = map(data, function(v) {
-                if (!isestr(v.id)) {
-                    v.id = genIDSeq()
-                }
-                return v
-            })
+            data = procPk(data, 'save')
 
             //pmSeries
             res = await pmSeries(data, async(v) => {
