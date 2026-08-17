@@ -523,7 +523,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line714">line 714</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line777">line 777</a>
     </li></ul></dd>
     
 
@@ -684,7 +684,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line845">line 845</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line913">line 913</a>
     </li></ul></dd>
     
 
@@ -846,7 +846,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 
     
 
-    <h4 class="name" id=".insert"><span class="type-signature type-signature-async, static">(async, static) </span>insert<span class="signature">(data)</span><span class="type-signature"> &rarr; {Promise}</span></h4>
+    <h4 class="name" id=".insert"><span class="type-signature type-signature-async, static">(async, static) </span>insert<span class="signature">(data, option<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise}</span></h4>
 
     
 
@@ -862,7 +862,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line325">line 325</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line349">line 349</a>
     </li></ul></dd>
     
 
@@ -922,7 +922,11 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
         <th>Type</th>
 
         
+        <th>Attributes</th>
+        
 
+        
+        <th>Default</th>
         
 
         <th class="last">Description</th>
@@ -951,10 +955,132 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
             </td>
 
             
+                <td class="attributes">
+                
 
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                </td>
             
 
             <td class="description last"><p>輸入數據物件或陣列</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>option</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>{}</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入設定物件，預設為{}</p>
+                <h6>Properties</h6>
+                
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+        <th>Default</th>
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>returnList</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>false</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入是否改回傳逐筆結果布林值，預設false。給true時回傳與輸入等長保序之陣列，各筆為{n,nInserted,ok}，nInserted為1即該筆為新增；聚合計數只回答有幾筆是新的，逐筆結果方能回答是哪幾筆，供下游僅對新資料執行昂貴動作。回傳形式由呼叫點靜態決定，共用之結果處理程式碼不可跨不同取值之呼叫點混用</p></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+            </td>
         </tr>
 
     
@@ -980,7 +1106,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve回傳插入結果物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數，reject回傳錯誤訊息</p>
+    <p>回傳Promise，resolve依returnList回傳插入結果：預設回傳聚合物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數；returnList為true時回傳逐筆陣列，各筆n恆為1(主鍵命中或經插入)、ok恆為1(insert之錯誤皆屬整批性而reject，不進逐筆)；reject回傳錯誤訊息</p>
 </div>
 
 
@@ -1027,7 +1153,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line421">line 421</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line474">line 474</a>
     </li></ul></dd>
     
 
@@ -1188,7 +1314,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line513">line 513</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line571">line 571</a>
     </li></ul></dd>
     
 
@@ -1475,7 +1601,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line214">line 214</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line226">line 226</a>
     </li></ul></dd>
     
 
@@ -1654,7 +1780,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line273">line 273</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line290">line 290</a>
     </li></ul></dd>
     
 
@@ -1811,7 +1937,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Mon Aug 17 2026 11:00:07 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Mon Aug 17 2026 17:58:14 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

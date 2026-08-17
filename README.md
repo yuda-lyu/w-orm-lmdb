@@ -235,10 +235,21 @@ async function test() {
     let sb2 = await wo.select()
     console.log('ids after insertBulk', _.map(_.sortBy(sb2, 'id'), 'id'))
 
+    //insert by returnList, 回傳與輸入等長保序之逐筆結果, nInserted為1即該筆為新增
+    //聚合計數只回答有幾筆是新的, 逐筆結果方能回答是哪幾筆, 供下游僅對新資料執行昂貴動作
+    let rl = await wo.insert([{ id: 'id-peter', name: 'dup' }, { id: 'id-new1', name: 'new1' }], { returnList: true })
+    console.log('insert by returnList', rl)
+
+    //filter, 以逐筆結果對位取出新增之數據
+    let fresh = [{ id: 'id-peter', name: 'dup' }, { id: 'id-new1', name: 'new1' }].filter(function(v, i) {
+        return rl[i].nInserted === 1
+    })
+    console.log('fresh by returnList', _.map(fresh, 'id'))
+
 }
 test()
 // change delAll
-// delAll then { n: 2, nDeleted: 2, ok: 1 }
+// delAll then { n: 5, nDeleted: 5, ok: 1 }
 // change insert
 // insert then { n: 3, nInserted: 3, ok: 1 }
 // change save
@@ -291,4 +302,7 @@ test()
 // error insertBulk can not insertBulk by existed id[id-peter]
 // insertBulk by data with existed id catch Error: can not insertBulk by existed id[id-peter]
 // ids after insertBulk [ 'id-bulk1', 'id-bulk2', 'id-peter', 'id-rosemary' ]
+// change insert
+// insert by returnList [ { n: 1, nInserted: 0, ok: 1 }, { n: 1, nInserted: 1, ok: 1 } ]
+// fresh by returnList [ 'id-new1' ]
 ```

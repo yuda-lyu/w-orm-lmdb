@@ -7,7 +7,7 @@ let fdTar = './dist'
 
 
 rollupFiles({
-    fns: getFiles(fdSrc),
+    fns: 'WOrmLmdb.mjs',
     fdSrc,
     fdTar,
     nameDistType: 'kebabCase',
