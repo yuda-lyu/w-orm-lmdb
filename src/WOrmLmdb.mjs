@@ -23,6 +23,23 @@ import waitFun from 'wsemi/src/waitFun.mjs'
 /**
  * 操作資料庫(LMDB)
  *
+ * 回傳物件為EventEmitter，除各操作函數外另發出change與error兩事件，供呼叫端於單一處集中觀察資料異動與失敗。
+ * 事件僅為附加通知，其所送出之資訊皆另有正規管道(操作結果經resolve、整批性錯誤經reject、逐筆失敗經該筆之err欄位)，
+ * 故不監聽亦能取得完整資訊，且監聽與否不改變任何操作之回傳值。
+ *
+ * change事件，參數為(mode, data, res)，於資料實際異動成功後發出：
+ * mode為操作別字串，可為'insert'、'save'、'del'、'delAll'；save內若逐筆走自動插入則該筆另發出mode為'insert'之事件。
+ * data為本次操作之輸入數據，delAll固定為null。
+ * res為本次操作之回傳結果。
+ * 逐筆函數以整批為單位發出一次而不逐筆發出，select與selectByPk不發出本事件。
+ *
+ * error事件，參數為(mode, data, err)，於操作發生錯誤時發出：
+ * mode為操作別字串，可為'select'、'selectByPk'、'insert'、'save'、'del'、'delAll'。
+ * data為本次操作之輸入數據，無輸入數據者為null。
+ * err為錯誤訊息字串，內容與正規管道所送出者一致。
+ * 整批性錯誤於reject之前發出；逐筆失敗於該筆結果定案後發出，每筆一次。
+ * 註: 逐筆失敗時整批仍resolve，故收到本事件不表示該次呼叫失敗；正常結果(如查無數據、主鍵未命中、全數已存在)不發出本事件。
+ *
  * @class
  * @param {Object} [opt={}] 輸入設定物件，預設{}
  * @param {String} [opt.url='_db'] 輸入資料庫用資料夾字串，預設'_db'
@@ -118,7 +135,30 @@ function WOrmLmdb(opt = {}) {
         })
     }
 
-    //getErrMsg, 取錯誤訊息字串, 供逐筆結果之err欄位使用
+    //emitChange, 資料實際異動成功後發出, 事件僅為附加通知不承擔回傳義務
+    //一律包try/catch, 令訂閱函數自身拋錯不影響本次操作之結果
+    let emitChange = (mode, data, res) => {
+        try {
+            ee.emit('change', mode, data, res)
+        }
+        catch (err) {
+            console.log(err)
+        }
+    }
+
+    //emitError, 操作發生錯誤時發出, 錯誤訊息一律轉為字串
+    //此try/catch除攔訂閱函數之例外外另有必要: Node之EventEmitter於'error'無監聽者時會將錯誤直接拋出,
+    //若不攔則同一次操作會因呼叫端有無註冊監聽而走向不同結果
+    let emitError = (mode, data, err) => {
+        try {
+            ee.emit('error', mode, data, getErrMsg(err))
+        }
+        catch (errEmit) {
+            console.log(errEmit)
+        }
+    }
+
+    //getErrMsg, 取錯誤訊息字串, 供逐筆結果之err欄位與error事件使用
     let getErrMsg = (err) => {
         let m = get(err, 'message')
         if (isestr(m)) {
@@ -212,6 +252,10 @@ function WOrmLmdb(opt = {}) {
 
         //check
         if (isErr) {
+
+            //emit, 整批性錯誤須於reject之前發出
+            emitError('select', null, res)
+
             return Promise.reject(res)
         }
 
@@ -261,6 +305,10 @@ function WOrmLmdb(opt = {}) {
 
         //check
         if (isErr) {
+
+            //emit, 整批性錯誤須於reject之前發出
+            emitError('selectByPk', null, res)
+
             return Promise.reject(res)
         }
 
@@ -344,19 +392,15 @@ function WOrmLmdb(opt = {}) {
 
         //emit, 於change可能須使用select, 故須放在重設快取之後
         if (!isErr) {
-            try {
-
-                //emit
-                ee.emit('change', 'insert', data, res)
-
-            }
-            catch (err) {
-                console.log(err)
-            }
+            emitChange('insert', data, res)
         }
 
         //check
         if (isErr) {
+
+            //emit, 整批性錯誤須於reject之前發出
+            emitError('insert', data, res)
+
             return Promise.reject(res)
         }
 
@@ -525,16 +569,15 @@ function WOrmLmdb(opt = {}) {
                     //update, 不能保證插入多少, 一律重設快取
                     _cache = null
 
-                    try {
+                    //emit
+                    emitChange('insert', [v], rest)
 
-                        //emit
-                        ee.emit('change', 'insert', [v], rest)
+                }
 
-                    }
-                    catch (err) {
-                        console.log(err)
-                    }
-
+                //emit, 逐筆失敗於該筆結果定案後發出, 每筆一次
+                //此事件之發出不表示整批失敗, 整批仍resolve, 該筆以ok為0回報
+                if (rest.ok === 0) {
+                    emitError('save', [v], rest.err)
                 }
 
                 return rest
@@ -550,20 +593,17 @@ function WOrmLmdb(opt = {}) {
         _cache = null
 
         //emit, 於change可能須使用select, 故須放在重設快取之後
+        //逐筆失敗之error事件已於各筆定案時發出, 故必早於本整批change
         if (!isErr) {
-            try {
-
-                //emit
-                ee.emit('change', 'save', data, res)
-
-            }
-            catch (err) {
-                console.log(err)
-            }
+            emitChange('save', data, res)
         }
 
         //check
         if (isErr) {
+
+            //emit, 整批性錯誤須於reject之前發出
+            emitError('save', data, res)
+
             return Promise.reject(res)
         }
 
@@ -612,38 +652,42 @@ function WOrmLmdb(opt = {}) {
                     if (!isestr(id)) {
                         //未給有效v.id視為該筆數據有問題而無法處理, 以ok為0並附err回報,
                         //與[已給v.id但查無數據]之ok為1有別, 二者須可由ok分辨
-                        return {
+                        //註: 此處不可直接return, 否則會跳過本回調末尾之error事件發出
+                        rest = {
                             n: 0,
                             nDeleted: 0,
                             ok: 0,
                             err: `can not delete by invalid id[${id}]`,
                         }
                     }
-
-                    //查找資料表內v.id
-                    let vv = await getValue(id) //不會有catch
-
-                    //check
-                    if (iseobj(vv)) {
-                        //已存在v.id則須刪除
-
-                        //del
-                        await client.del(id)
-
-                        //rest
-                        rest = {
-                            n: 1,
-                            nDeleted: 1,
-                            ok: 1,
-                        }
-
-                    }
                     else {
-                        //不存在v.id則不刪除, 未命中故n為0
-                        rest = {
-                            n: 0,
-                            nDeleted: 0,
-                            ok: 1,
+
+                        //查找資料表內v.id
+                        let vv = await getValue(id) //不會有catch
+
+                        //check
+                        if (iseobj(vv)) {
+                            //已存在v.id則須刪除
+
+                            //del
+                            await client.del(id)
+
+                            //rest
+                            rest = {
+                                n: 1,
+                                nDeleted: 1,
+                                ok: 1,
+                            }
+
+                        }
+                        else {
+                            //不存在v.id則不刪除, 未命中故n為0
+                            rest = {
+                                n: 0,
+                                nDeleted: 0,
+                                ok: 1,
+                            }
+
                         }
 
                     }
@@ -661,6 +705,12 @@ function WOrmLmdb(opt = {}) {
 
                 }
 
+                //emit, 逐筆失敗於該筆結果定案後發出, 每筆一次
+                //此事件之發出不表示整批失敗, 整批仍resolve, 該筆以ok為0回報
+                if (rest.ok === 0) {
+                    emitError('del', [v], rest.err)
+                }
+
                 return rest
             })
 
@@ -674,20 +724,17 @@ function WOrmLmdb(opt = {}) {
         _cache = null
 
         //emit, 於change可能須使用select, 故須放在重設快取之後
+        //逐筆失敗之error事件已於各筆定案時發出, 故必早於本整批change
         if (!isErr) {
-            try {
-
-                //emit
-                ee.emit('change', 'del', data, res)
-
-            }
-            catch (err) {
-                console.log(err)
-            }
+            emitChange('del', data, res)
         }
 
         //check
         if (isErr) {
+
+            //emit, 整批性錯誤須於reject之前發出
+            emitError('del', data, res)
+
             return Promise.reject(res)
         }
 
@@ -789,19 +836,15 @@ function WOrmLmdb(opt = {}) {
 
         //emit, 於change可能須使用select, 故須放在重設快取之後
         if (!isErr) {
-            try {
-
-                //emit
-                ee.emit('change', 'delAll', null, res)
-
-            }
-            catch (err) {
-                console.log(err)
-            }
+            emitChange('delAll', null, res)
         }
 
         //check
         if (isErr) {
+
+            //emit, 整批性錯誤須於reject之前發出
+            emitError('delAll', null, res)
+
             return Promise.reject(res)
         }
 

@@ -117,6 +117,9 @@ async function test() {
     wo.on('change', function(mode, data, res) {
         console.log('change', mode)
     })
+    wo.on('error', function(mode, data, err) {
+        console.log('error', mode, err)
+    })
 
     //delAll
     await wo.delAll()
@@ -200,6 +203,15 @@ async function test() {
             console.log('del catch', msg)
         })
 
+    //del by data without id, 該筆無法處理故ok為0並附err, 整批仍resolve且另發出error事件
+    await wo.del({ name: 'no-id' })
+        .then(function(msg) {
+            console.log('del by data without id then', msg)
+        })
+        .catch(function(msg) {
+            console.log('del by data without id catch', msg)
+        })
+
 }
 test()
 // change delAll
@@ -248,4 +260,7 @@ test()
 // save then [ { n: 1, nInserted: 0, nModified: 1, ok: 1 } ]
 // change del
 // del then [ { n: 1, nDeleted: 1, ok: 1 } ]
+// error del can not delete by invalid id[]
+// change del
+// del by data without id then [ { n: 0, nDeleted: 0, ok: 0, err: 'can not delete by invalid id[]' } ]
 ```
