@@ -173,13 +173,25 @@ function WOrmLmdb(opt = {}) {
     }
 
     //waitOpen, 等待client開啟, 因getRange與get於client關閉時會拋錯
+    //closed為終態: LMDB env一旦關閉不會自行回到open, 續等必然逾時, 故直接拋出而非空轉至逾時
+    //各函數入口已有procClosed守門, 此處之終態判斷為縱深防禦, 攔[操作進行中被close]之競態
+    //等待參數收斂: 開啟中為毫秒級過渡, 50次x200ms=10秒已極寬裕, 不使非終態之等待拖至waitFun預設之200秒
     let waitOpen = async () => {
+        if (client.status === 'closed') {
+            throw new Error('client is closed, instance can not be used after close()')
+        }
         await waitFun(() => {
-            if (client.status === 'closed') {
-                console.log(`client.status[${client.status}], level is closed`)
-            }
             return client.status === 'open'
-        })
+        }, { attemptNum: 50, timeInterval: 200 })
+    }
+
+    //procClosed, 各函數入口之終態守門: close()後再操作屬整批性錯誤, 立即reject令誤用當場可見
+    //不可靜默回正常空值(如null或未命中), 否則[已關閉]與[查無資料]同形,
+    //去重類呼叫端將把每筆判為未存在而fail-open, 整批重送下游昂貴動作
+    let procClosed = (mode, data) => {
+        let msg = `can not ${mode} by closed client, instance can not be used after close()`
+        emitError(mode, data, msg)
+        return Promise.reject(new Error(msg))
     }
 
     //emitChange, 資料實際異動成功後發出, 事件僅為附加通知不承擔回傳義務
@@ -259,6 +271,11 @@ function WOrmLmdb(opt = {}) {
      * @returns {Promise} 回傳Promise，resolve回傳數據，reject回傳錯誤訊息
      */
     async function select(find = {}) {
+
+        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (client.status === 'closed') {
+            return procClosed('select', null)
+        }
         let isErr = false
         let res = null
 
@@ -318,6 +335,11 @@ function WOrmLmdb(opt = {}) {
      * @returns {Promise} 回傳Promise，resolve回傳數據物件，若無此主鍵則回傳null，reject回傳錯誤訊息
      */
     async function selectByPk(pk) {
+
+        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (client.status === 'closed') {
+            return procClosed('selectByPk', null)
+        }
         let isErr = false
         let res = null
 
@@ -367,13 +389,30 @@ function WOrmLmdb(opt = {}) {
      *
      * @memberOf WOrmLmdb
      * @param {Object|Array} data 輸入數據物件或陣列
-     * @returns {Promise} 回傳Promise，resolve回傳插入結果物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數，reject回傳錯誤訊息
+     * @param {Object} [option={}] 輸入設定物件，預設為{}
+     * @param {Boolean} [option.returnList=false] 輸入是否改回傳逐筆結果布林值，預設false。給true時回傳與輸入等長保序之陣列，各筆為{n,nInserted,ok}，nInserted為1即該筆為新增；聚合計數只回答有幾筆是新的，逐筆結果方能回答是哪幾筆，供下游僅對新資料執行昂貴動作。回傳形式由呼叫點靜態決定，共用之結果處理程式碼不可跨不同取值之呼叫點混用
+     * @returns {Promise} 回傳Promise，resolve依returnList回傳插入結果：預設回傳聚合物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數；returnList為true時回傳逐筆陣列，各筆n恆為1(主鍵命中或經插入)、ok恆為1(insert之錯誤皆屬整批性而reject，不進逐筆)；reject回傳錯誤訊息
      */
-    async function insert(data) {
+    async function insert(data, option = {}) {
+
+        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (client.status === 'closed') {
+            return procClosed('insert', data)
+        }
         let isErr = false
+
+        //returnList
+        let returnList = get(option, 'returnList')
+        if (!isbol(returnList)) {
+            returnList = false
+        }
 
         //check
         if (!iseobj(data) &amp;&amp; !isearr(data)) {
+            if (returnList) {
+                //輸入無效, 對齊save與del之T5規定回傳空陣列
+                return []
+            }
             return {
                 n: 0,
                 nInserted: 0,
@@ -422,10 +461,24 @@ function WOrmLmdb(opt = {}) {
             })
 
             //res
-            res = {
-                n: nAll,
-                nInserted: nPush,
-                ok: 1,
+            if (returnList) {
+                //逐筆結果, 與輸入等長保序, 元素沿用逐筆結果之家族形狀(同save與del之元素)
+                //n恆為1(主鍵命中既有或經插入而產生), ok恆為1(insert之錯誤皆屬整批性而reject, 不進逐筆),
+                //資訊由nInserted承載, filter(v=>v.nInserted===1)之長度必等於聚合模式之nInserted
+                res = map(ltdone, function(done) {
+                    return {
+                        n: 1,
+                        nInserted: done ? 1 : 0,
+                        ok: 1,
+                    }
+                })
+            }
+            else {
+                res = {
+                    n: nAll,
+                    nInserted: nPush,
+                    ok: 1,
+                }
             }
 
         }
@@ -466,6 +519,11 @@ function WOrmLmdb(opt = {}) {
      * @returns {Promise} 回傳Promise，resolve回傳插入結果物件{n,nInserted,ok}，n為輸入筆數、nInserted成功時恆等於n，任一筆主鍵已存在則reject回傳錯誤訊息
      */
     async function insertBulk(data) {
+
+        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (client.status === 'closed') {
+            return procClosed('insertBulk', data)
+        }
         let isErr = false
 
         //check
@@ -558,6 +616,11 @@ function WOrmLmdb(opt = {}) {
      * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數，單筆失敗者ok為0並附err，reject回傳錯誤訊息
      */
     async function save(data, option = {}) {
+
+        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (client.status === 'closed') {
+            return procClosed('save', data)
+        }
         let isErr = false
 
         //check
@@ -759,6 +822,11 @@ function WOrmLmdb(opt = {}) {
      * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之刪除結果陣列，各筆為{n,nDeleted,ok}，n為主鍵命中筆數，單筆失敗或未給有效id者ok為0並附err，reject回傳錯誤訊息
      */
     async function del(data) {
+
+        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (client.status === 'closed') {
+            return procClosed('del', data)
+        }
         let isErr = false
 
         //check
@@ -890,6 +958,11 @@ function WOrmLmdb(opt = {}) {
      * @returns {Promise} 回傳Promise，resolve回傳刪除結果物件{n,nDeleted,ok}，n與nDeleted同為實際刪除筆數，reject回傳錯誤訊息
      */
     async function delAll(find = {}) {
+
+        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (client.status === 'closed') {
+            return procClosed('delAll', null)
+        }
         let isErr = false
 
         //res
@@ -992,7 +1065,8 @@ function WOrmLmdb(opt = {}) {
         return res
     }
 
-    //close, 關閉內部LMDB env並釋放檔案鎖, close後該實例即報廢, 須重新new WOrmLmdb
+    //close, 關閉內部LMDB env並釋放檔案鎖, close後該實例即報廢, 須重新new WOrmLmdb,
+    //再呼叫任何操作函數將立即reject(訊息明示closed), 不與[查無資料]同形
     let close = async () => {
         if (client &amp;&amp; client.status !== 'closed') {
             await client.close() //lmdb root database之close(), 回傳Promise
@@ -1028,7 +1102,7 @@ export default WOrmLmdb
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Mon Aug 17 2026 11:00:07 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Mon Aug 17 2026 17:58:14 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
