@@ -1,5 +1,5 @@
 /*!
- * req-mingo v1.0.18
+ * req-mingo v1.0.19
  * (c) 2018-2021 yuda-lyu(semisphere)
  * Released under the MIT License.
  */

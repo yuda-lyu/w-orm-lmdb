@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmLmdb.html">WOrmLmdb</a><ul class='methods'><li data-type='method'><a href="WOrmLmdb.html#.del">del</a></li><li data-type='method'><a href="WOrmLmdb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmLmdb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmLmdb.html#.save">save</a></li><li data-type='method'><a href="WOrmLmdb.html#.select">select</a></li><li data-type='method'><a href="WOrmLmdb.html#.selectByPk">selectByPk</a></li></ul></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmLmdb.html">WOrmLmdb</a><ul class='methods'><li data-type='method'><a href="WOrmLmdb.html#.del">del</a></li><li data-type='method'><a href="WOrmLmdb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmLmdb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmLmdb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmLmdb.html#.save">save</a></li><li data-type='method'><a href="WOrmLmdb.html#.select">select</a></li><li data-type='method'><a href="WOrmLmdb.html#.selectByPk">selectByPk</a></li></ul></li></ul>
     
 </nav>
 
@@ -79,12 +79,12 @@
 事件僅為附加通知，其所送出之資訊皆另有正規管道(操作結果經resolve、整批性錯誤經reject、逐筆失敗經該筆之err欄位)，
 故不監聽亦能取得完整資訊，且監聽與否不改變任何操作之回傳值。</p>
 <p>change事件，參數為(mode, data, res)，於資料實際異動成功後發出：
-mode為操作別字串，可為'insert'、'save'、'del'、'delAll'；save內若逐筆走自動插入則該筆另發出mode為'insert'之事件。
+mode為操作別字串，可為'insert'、'insertBulk'、'save'、'del'、'delAll'；save內若逐筆走自動插入則該筆另發出mode為'insert'之事件。
 data為本次操作之輸入數據，delAll固定為null。
 res為本次操作之回傳結果。
 逐筆函數以整批為單位發出一次而不逐筆發出，select與selectByPk不發出本事件。</p>
 <p>error事件，參數為(mode, data, err)，於操作發生錯誤時發出：
-mode為操作別字串，可為'select'、'selectByPk'、'insert'、'save'、'del'、'delAll'。
+mode為操作別字串，可為'select'、'selectByPk'、'insert'、'insertBulk'、'save'、'del'、'delAll'。
 data為本次操作之輸入數據，無輸入數據者為null。
 err為錯誤訊息字串，內容與正規管道所送出者一致。
 整批性錯誤於reject之前發出；逐筆失敗於該筆結果定案後發出，每筆一次。
@@ -523,7 +523,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line620">line 620</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line714">line 714</a>
     </li></ul></dd>
     
 
@@ -684,7 +684,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line751">line 751</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line845">line 845</a>
     </li></ul></dd>
     
 
@@ -1007,6 +1007,171 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 
     
 
+    <h4 class="name" id=".insertBulk"><span class="type-signature type-signature-async, static">(async, static) </span>insertBulk<span class="signature">(data)</span><span class="type-signature"> &rarr; {Promise}</span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>批次插入數據，全批視為一個單位，全部插入成功或一筆都不寫入
+註: 本函數非insert之加速版，兩者衝突政策不同。insert於主鍵已存在時跳過該筆而整批ok為1，
+本函數則整批reject且不寫入任何一筆；同批含重複主鍵者亦視為衝突。確無衝突時兩者結果相同
+註: 於本套件不會較insert快，因insert本即以Promise.all一次送出全部條件寫入而非逐筆await，
+提供本函數係為與其他w-orm系列套件維持同一組函數，令呼叫端得於各套件間替換而不須改寫呼叫</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line421">line 421</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <h5 class="h5-parameters">Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>data</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+|
+
+<span class="param-type">Array</span>
+
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"><p>輸入數據物件或陣列</p></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5 class="h5-returns">Returns:</h5>
+
+        
+<div class="param-desc">
+    <p>回傳Promise，resolve回傳插入結果物件{n,nInserted,ok}，n為輸入筆數、nInserted成功時恆等於n，任一筆主鍵已存在則reject回傳錯誤訊息</p>
+</div>
+
+
+
+<dl class="param-type">
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Promise</span>
+
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+        
+            
+
+    
+
     <h4 class="name" id=".save"><span class="type-signature type-signature-async, static">(async, static) </span>save<span class="signature">(data, option<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise}</span></h4>
 
     
@@ -1023,7 +1188,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line419">line 419</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line513">line 513</a>
     </li></ul></dd>
     
 
@@ -1646,7 +1811,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Mon Aug 17 2026 08:38:27 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Mon Aug 17 2026 11:00:07 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

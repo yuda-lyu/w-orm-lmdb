@@ -10,7 +10,7 @@ An operator for lmdb in nodejs.
 
 ## Keypoint
 
-注意: 因lmdb-js綁定層限制, 須使用單程序操作lmdb, 才能避免競爭條件失效.
+注意: 因lmdb-js綁定層限制, 無法支援跨程序併發, 須使用單程序操作lmdb才能避免競爭條件失效.
 
 ### Use a single process for writing
 
@@ -212,6 +212,29 @@ async function test() {
             console.log('del by data without id catch', msg)
         })
 
+    //insertBulk, 全批視為一個單位, 無衝突時nInserted恆等於n
+    await wo.insertBulk([{ id: 'id-bulk1', name: 'bulk1' }, { id: 'id-bulk2', name: 'bulk2' }])
+        .then(function(msg) {
+            console.log('insertBulk then', msg)
+        })
+        .catch(function(msg) {
+            console.log('insertBulk catch', msg)
+        })
+
+    //insertBulk by data with existed id, 非insert之加速版而係衝突政策不同
+    //insert於主鍵已存在時跳過該筆而整批ok為1, insertBulk則整批reject且不寫入任何一筆
+    await wo.insertBulk([{ id: 'id-bulk3', name: 'bulk3' }, { id: 'id-peter', name: 'conflict' }])
+        .then(function(msg) {
+            console.log('insertBulk by data with existed id then', msg)
+        })
+        .catch(function(msg) {
+            console.log('insertBulk by data with existed id catch', msg.toString())
+        })
+
+    //select all, 可見id-bulk3因整批reject而未寫入
+    let sb2 = await wo.select()
+    console.log('ids after insertBulk', _.map(_.sortBy(sb2, 'id'), 'id'))
+
 }
 test()
 // change delAll
@@ -263,4 +286,9 @@ test()
 // error del can not delete by invalid id[]
 // change del
 // del by data without id then [ { n: 0, nDeleted: 0, ok: 0, err: 'can not delete by invalid id[]' } ]
+// change insertBulk
+// insertBulk then { n: 2, nInserted: 2, ok: 1 }
+// error insertBulk can not insertBulk by existed id[id-peter]
+// insertBulk by data with existed id catch Error: can not insertBulk by existed id[id-peter]
+// ids after insertBulk [ 'id-bulk1', 'id-bulk2', 'id-peter', 'id-rosemary' ]
 ```

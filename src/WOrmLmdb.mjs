@@ -1,4 +1,4 @@
-import { open } from 'lmdb'
+import { open, ABORT } from 'lmdb'
 // import mingo from 'mingo' //mingo內未更新import寫法, 會導致ERR_UNSUPPORTED_DIR_IMPORT, 故須改用require引入使用
 import mingo from './reqMingo.js'
 import size from 'lodash-es/size.js'
@@ -28,13 +28,13 @@ import waitFun from 'wsemi/src/waitFun.mjs'
  * 故不監聽亦能取得完整資訊，且監聽與否不改變任何操作之回傳值。
  *
  * change事件，參數為(mode, data, res)，於資料實際異動成功後發出：
- * mode為操作別字串，可為'insert'、'save'、'del'、'delAll'；save內若逐筆走自動插入則該筆另發出mode為'insert'之事件。
+ * mode為操作別字串，可為'insert'、'insertBulk'、'save'、'del'、'delAll'；save內若逐筆走自動插入則該筆另發出mode為'insert'之事件。
  * data為本次操作之輸入數據，delAll固定為null。
  * res為本次操作之回傳結果。
  * 逐筆函數以整批為單位發出一次而不逐筆發出，select與selectByPk不發出本事件。
  *
  * error事件，參數為(mode, data, err)，於操作發生錯誤時發出：
- * mode為操作別字串，可為'select'、'selectByPk'、'insert'、'save'、'del'、'delAll'。
+ * mode為操作別字串，可為'select'、'selectByPk'、'insert'、'insertBulk'、'save'、'del'、'delAll'。
  * data為本次操作之輸入數據，無輸入數據者為null。
  * err為錯誤訊息字串，內容與正規管道所送出者一致。
  * 整批性錯誤於reject之前發出；逐筆失敗於該筆結果定案後發出，每筆一次。
@@ -400,6 +400,100 @@ function WOrmLmdb(opt = {}) {
 
             //emit, 整批性錯誤須於reject之前發出
             emitError('insert', data, res)
+
+            return Promise.reject(res)
+        }
+
+        return res
+    }
+
+    /**
+     * 批次插入數據，全批視為一個單位，全部插入成功或一筆都不寫入
+     * 註: 本函數非insert之加速版，兩者衝突政策不同。insert於主鍵已存在時跳過該筆而整批ok為1，
+     * 本函數則整批reject且不寫入任何一筆；同批含重複主鍵者亦視為衝突。確無衝突時兩者結果相同
+     * 註: 於本套件不會較insert快，因insert本即以Promise.all一次送出全部條件寫入而非逐筆await，
+     * 提供本函數係為與其他w-orm系列套件維持同一組函數，令呼叫端得於各套件間替換而不須改寫呼叫
+     *
+     * @memberOf WOrmLmdb
+     * @param {Object|Array} data 輸入數據物件或陣列
+     * @returns {Promise} 回傳Promise，resolve回傳插入結果物件{n,nInserted,ok}，n為輸入筆數、nInserted成功時恆等於n，任一筆主鍵已存在則reject回傳錯誤訊息
+     */
+    async function insertBulk(data) {
+        let isErr = false
+
+        //check
+        if (!iseobj(data) && !isearr(data)) {
+            return {
+                n: 0,
+                nInserted: 0,
+                ok: 1,
+            }
+        }
+
+        //cloneDeep, 與外部數據脫勾
+        data = cloneDeep(data)
+
+        //res
+        let res = null
+        try {
+
+            //check
+            if (!isarr(data)) {
+                data = [data]
+            }
+
+            //check id
+            data = procPk(data, 'insertBulk')
+
+            //nAll
+            let nAll = size(data)
+
+            //childTransaction, 全有全無由交易回滾保證
+            //註: 非同步之client.transaction於中止時並不回滾, 實測其內之put仍會落盤, 故此處須用childTransaction
+            //註: 交易內之client.get讀得到同一交易稍早之put, 故同批含重複主鍵者亦會於此被偵測為衝突
+            //註: 存在與否採鍵層判定, 與insert之ifNoExists一致
+            let pkConflict = null
+            await client.childTransaction(() => {
+                for (let v of data) {
+                    if (client.get(v.id) !== undefined) {
+                        pkConflict = v.id
+                        return ABORT
+                    }
+                    client.put(v.id, v)
+                }
+            })
+
+            //check, 衝突則整批視為失敗, 交易已回滾故無任何寫入
+            if (isestr(pkConflict)) {
+                throw new Error(`can not insertBulk by existed id[${pkConflict}]`)
+            }
+
+            //res, 未衝突則全數插入, 故nInserted恆等於n
+            res = {
+                n: nAll,
+                nInserted: nAll,
+                ok: 1,
+            }
+
+        }
+        catch (err) {
+            isErr = true
+            res = err
+        }
+
+        //update, 不能保證插入多少, 一律重設快取
+        _cache = null
+
+        //emit, 於change可能須使用select, 故須放在重設快取之後
+        if (!isErr) {
+            emitChange('insertBulk', data, res)
+        }
+
+        //check
+        if (isErr) {
+
+            //emit, 整批性錯誤須於reject之前發出
+            emitError('insertBulk', data, res)
 
             return Promise.reject(res)
         }
@@ -862,6 +956,7 @@ function WOrmLmdb(opt = {}) {
     ee.select = select
     ee.selectByPk = selectByPk
     ee.insert = insert
+    ee.insertBulk = insertBulk
     ee.save = save
     ee.del = del
     ee.delAll = delAll
