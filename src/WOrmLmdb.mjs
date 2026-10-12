@@ -13,11 +13,9 @@ import isarr from 'wsemi/src/isarr.mjs'
 import isearr from 'wsemi/src/isearr.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import isbol from 'wsemi/src/isbol.mjs'
-import haskey from 'wsemi/src/haskey.mjs'
 import evem from 'wsemi/src/evem.mjs'
 import genIDSeq from 'wsemi/src/genIDSeq.mjs'
 import pmSeries from 'wsemi/src/pmSeries.mjs'
-import waitFun from 'wsemi/src/waitFun.mjs'
 
 
 /**
@@ -28,24 +26,26 @@ import waitFun from 'wsemi/src/waitFun.mjs'
  * 故不監聽亦能取得完整資訊，且監聽與否不改變任何操作之回傳值。
  *
  * change事件，參數為(mode, data, res)，於資料實際異動成功後發出：
- * mode為操作別字串，可為'insert'、'insertBulk'、'save'、'del'、'delAll'；save內若逐筆走自動插入則該筆另發出mode為'insert'之事件。
+ * mode為操作別字串，可為'insert'、'insertBulk'、'save'、'del'、'delAll'；save內若逐筆走自動插入則該筆另發出mode為'insert'之事件，於整批定案後、整批事件之前發出。
  * data為本次操作之輸入數據，delAll固定為null。
- * res為本次操作之回傳結果。
+ * res為本次操作之回傳結果之複本，改寫之不影響回傳結果。
  * 逐筆函數以整批為單位發出一次而不逐筆發出，select與selectByPk不發出本事件。
  *
  * error事件，參數為(mode, data, err)，於操作發生錯誤時發出：
  * mode為操作別字串，可為'select'、'selectByPk'、'insert'、'insertBulk'、'save'、'del'、'delAll'。
  * data為本次操作之輸入數據，無輸入數據者為null。
  * err為錯誤訊息字串，內容與正規管道所送出者一致。
- * 整批性錯誤於reject之前發出；逐筆失敗於該筆結果定案後發出，每筆一次。
+ * 整批性錯誤於reject之前發出；逐筆失敗於整批定案後依序發出，每筆一次，整批因整批性錯誤而reject者不發出。
  * 註: 逐筆失敗時整批仍resolve，故收到本事件不表示該次呼叫失敗；正常結果(如查無數據、主鍵未命中、全數已存在)不發出本事件。
+ *
+ * 讀取(select、selectByPk，以及save、del、delAll內之讀取)可見本次呼叫前已提交之資料，含同一程序之其他實例與其他程序之提交；惟select於useCache開啟且快取命中時回傳快取。
  *
  * @class
  * @param {Object} [opt={}] 輸入設定物件，預設{}
  * @param {String} [opt.url='_db'] 輸入資料庫用資料夾字串，預設'_db'
  * @param {String} [opt.db='worm'] 輸入使用資料庫名稱字串，預設'worm'
  * @param {String} [opt.cl='test'] 輸入使用資料表名稱字串，預設'test'
- * @param {Boolean} [opt.useCache=false] 輸入是否使用select快取，適用於單程序操作，預設false
+ * @param {Boolean} [opt.useCache=false] 輸入是否使用select快取，快取只反映本實例之寫入，不反映同一程序之其他實例或其他程序之寫入，故僅適用於同一資料表只由本實例存取之情形；delAll一律直讀資料庫而不經快取，預設false
  * @param {Boolean} [opt.autoGenPk=true] 輸入insert與save於數據未帶有效主鍵(本套件為id欄位)時是否自動產生主鍵值，預設true；給false代表主鍵改由呼叫端自備，套件不產生亦不檢查其唯一性與格式，未帶有效主鍵者將reject
  * @returns {Object} 回傳操作資料庫物件，各事件功能詳見說明
  */
@@ -99,24 +99,45 @@ function WOrmLmdb(opt = {}) {
     //ee
     let ee = evem()
 
-    //getData
-    let getData = async() => {
+    //readAll, 由資料庫讀取全部數據而不經快取, mode為呼叫之操作別, 供已關閉時之錯誤訊息使用
+    let readAll = (mode) => {
+
+        //prepareRead, 須與其後之讀取同步執行
+        prepareRead(mode)
+
+        //ltdt, 須同步迭代而不可用for await: for await逐筆讓出, 併發之select會交錯持有讀交易,
+        //讀前重設遇交易使用中且已有新提交時lmdb-js即另開讀交易, 致reader slot(預設126, 跨程序共用)耗盡而MDB_READERS_FULL
+        //須於finally呼叫return()歸還cursor: next()內拋錯(如數據無法解碼)時for...of不會呼叫return(),
+        //讀交易將被孤立而持續占用reader slot直到GC, 反覆失敗即耗盡全環境(含其他程序)之reader slot
+        let ltdt = []
+        let it = client.getRange()[Symbol.iterator]()
+        try {
+            for (let r = it.next(); !r.done; r = it.next()) {
+                ltdt.push(r.value.value)
+            }
+        }
+        finally {
+            try {
+                it.return()
+            }
+            catch (err) {
+                //歸還cursor之錯誤不可掩蓋讀取之結果或原錯誤
+            }
+        }
+
+        return ltdt
+    }
+
+    //getData, 供select使用, 依useCache使用快取, mode為呼叫之操作別
+    let getData = async(mode) => {
 
         //check
         if (useCache && isarr(_cache)) {
             return cloneDeep(_cache) //與外部使用數據脫勾
         }
 
-        //waitOpen
-        await waitOpen()
-        // console.log('client.status',client.status)
-
         //ltdt
-        let ltdt = []
-        for await (let { value: dt } of client.getRange()) {
-            // console.log('dt',dt)
-            ltdt.push(dt)
-        }
+        let ltdt = readAll(mode)
 
         if (useCache) {
             _cache = ltdt
@@ -125,33 +146,47 @@ function WOrmLmdb(opt = {}) {
         return ltdt
     }
 
-    //waitOpen, 等待client開啟, 因getRange與get於client關閉時會拋錯
-    //closed為終態: LMDB env一旦關閉不會自行回到open, 續等必然逾時, 故直接拋出而非空轉至逾時
-    //各函數入口已有procClosed守門, 此處之終態判斷為縱深防禦, 攔[操作進行中被close]之競態
-    //等待參數收斂: 開啟中為毫秒級過渡, 50次x200ms=10秒已極寬裕, 不使非終態之等待拖至waitFun預設之200秒
-    let waitOpen = async () => {
-        if (client.status === 'closed') {
-            throw new Error('client is closed, instance can not be used after close()')
-        }
-        await waitFun(() => {
-            return client.status === 'open'
-        }, { attemptNum: 50, timeInterval: 200 })
+    //isClosed, close()後lmdb之status由'open'轉'closing', 待未完成之寫入結束後再轉'closed', 二者皆為終態,
+    //一律視為已關閉; status僅此三值, 且'open'於open()回傳前即已設定, 故無開啟中而須等待之狀態
+    let isClosed = () => {
+        return client.status !== 'open'
     }
 
-    //procClosed, 各函數入口之終態守門: close()後再操作屬整批性錯誤, 立即reject令誤用當場可見
+    //getClosedMsg, 已關閉之錯誤訊息
+    let getClosedMsg = (mode) => {
+        return `can not ${mode} by closed client, instance can not be used after close()`
+    }
+
+    //procClosed, 各函數入口之終態守門: close()後(含關閉進行中)再操作屬整批性錯誤, 立即reject令誤用當場可見
     //不可靜默回正常空值(如null或未命中), 否則[已關閉]與[查無資料]同形,
     //去重類呼叫端將把每筆判為未存在而fail-open, 整批重送下游昂貴動作
     let procClosed = (mode, data) => {
-        let msg = `can not ${mode} by closed client, instance can not be used after close()`
+        let msg = getClosedMsg(mode)
         emitError(mode, data, msg)
         return Promise.reject(new Error(msg))
     }
 
+    //prepareRead, 寫交易外之讀取前呼叫, 須與其後之讀取同步執行(中間不可await), 令close()無從插入:
+    //1.已關閉則拋錯: 關閉進行中呼叫lmdb之讀取, lmdb-js會於計時器內拋出未捕捉例外而使程序崩潰,
+    //  入口守門擋不住入口通過後才close()者(save、del之逐筆讀取於其後之microtask才執行), 故須於讀取處再擋
+    //2.重設讀交易: lmdb-js之讀交易屬於每次open所得之實例, 延至下一個timers階段才重設; 本實例之寫入於提交時即重設,
+    //  其他程序與同一程序之其他實例(另一次open)之提交則否, 於此前不可見; 讀前重設令讀取可見本次呼叫前已提交之資料,
+    //  寫交易內之讀取已取最新資料, 不需重設
+    let prepareRead = (mode) => {
+        if (isClosed()) {
+            throw new Error(getClosedMsg(mode))
+        }
+        client.resetReadTxn()
+    }
+
     //emitChange, 資料實際異動成功後發出, 事件僅為附加通知不承擔回傳義務
     //一律包try/catch, 令訂閱函數自身拋錯不影響本次操作之結果
+    //有訂閱者時傳入res之複本: res即回傳予呼叫端之物件, 訂閱者若改寫之將改變回傳結果(T10.1第4條)
     let emitChange = (mode, data, res) => {
         try {
-            ee.emit('change', mode, data, res)
+            if (ee.listenerCount('change') > 0) {
+                ee.emit('change', mode, data, cloneDeep(res))
+            }
         }
         catch (err) {
             console.log(err)
@@ -199,21 +234,12 @@ function WOrmLmdb(opt = {}) {
         return data
     }
 
-    //getValue
-    let getValue = async (key) => {
-        let value = null
-        try {
-            value = await client.get(key)
-        }
-        catch (err) {
-            // if (err.notFound) {
-            //     console.log('資料不存在')
-            // }
-            // else {
-            //     console.log('其他錯誤:', err)
-            // }
-        }
-        return value
+    //getValue, mode為呼叫之操作別, 供已關閉時之錯誤訊息使用
+    //讀取之錯誤(如已關閉、數據無法解碼)不可攔下回null, 否則與[查無資料]同形, 須交由呼叫端之錯誤處理;
+    //lmdb-js於查無數據時回undefined而不拋錯, 故會拋出者皆為真錯誤
+    let getValue = async (key, mode) => {
+        prepareRead(mode)
+        return client.get(key)
     }
 
     /**
@@ -225,8 +251,8 @@ function WOrmLmdb(opt = {}) {
      */
     async function select(find = {}) {
 
-        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
-        if (client.status === 'closed') {
+        //check client, 已關閉(含關閉進行中)為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (isClosed()) {
             return procClosed('select', null)
         }
         let isErr = false
@@ -235,7 +261,7 @@ function WOrmLmdb(opt = {}) {
         try {
 
             //ltdt
-            let ltdt = await getData()
+            let ltdt = await getData('select')
             // console.log('select ltdt',ltdt)
 
             //filter
@@ -289,8 +315,8 @@ function WOrmLmdb(opt = {}) {
      */
     async function selectByPk(pk) {
 
-        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
-        if (client.status === 'closed') {
+        //check client, 已關閉(含關閉進行中)為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (isClosed()) {
             return procClosed('selectByPk', null)
         }
         let isErr = false
@@ -304,11 +330,8 @@ function WOrmLmdb(opt = {}) {
                 return null
             }
 
-            //waitOpen
-            await waitOpen()
-
-            //查找資料表內pk
-            let v = await getValue(pk) //不會有catch
+            //查找資料表內pk, 讀取之錯誤(含已關閉)由下方catch轉為reject
+            let v = await getValue(pk, 'selectByPk')
 
             //check, 判定基準與insert、save、del內對既有數據之認定一致
             if (iseobj(v)) {
@@ -348,8 +371,8 @@ function WOrmLmdb(opt = {}) {
      */
     async function insert(data, option = {}) {
 
-        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
-        if (client.status === 'closed') {
+        //check client, 已關閉(含關閉進行中)為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (isClosed()) {
             return procClosed('insert', data)
         }
         let isErr = false
@@ -473,8 +496,8 @@ function WOrmLmdb(opt = {}) {
      */
     async function insertBulk(data) {
 
-        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
-        if (client.status === 'closed') {
+        //check client, 已關閉(含關閉進行中)為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (isClosed()) {
             return procClosed('insertBulk', data)
         }
         let isErr = false
@@ -493,6 +516,10 @@ function WOrmLmdb(opt = {}) {
 
         //res
         let res = null
+
+        //pkConflict, 置於try外供catch分辨衝突與已關閉
+        let pkConflict = null
+
         try {
 
             //check
@@ -508,12 +535,11 @@ function WOrmLmdb(opt = {}) {
 
             //childTransaction, 全有全無由交易回滾保證
             //註: 非同步之client.transaction於中止時並不回滾, 實測其內之put仍會落盤, 故此處須用childTransaction
-            //註: 交易內之client.get讀得到同一交易稍早之put, 故同批含重複主鍵者亦會於此被偵測為衝突
-            //註: 存在與否採鍵層判定, 與insert之ifNoExists一致
-            let pkConflict = null
+            //註: 交易內之讀取讀得到同一交易稍早之put, 故同批含重複主鍵者亦會於此被偵測為衝突
+            //註: 存在與否採鍵層判定(doesExist只判鍵而不解碼數據), 與insert之ifNoExists一致
             await client.childTransaction(() => {
                 for (let v of data) {
-                    if (client.get(v.id) !== undefined) {
+                    if (client.doesExist(v.id)) {
                         pkConflict = v.id
                         return ABORT
                     }
@@ -537,6 +563,13 @@ function WOrmLmdb(opt = {}) {
         catch (err) {
             isErr = true
             res = err
+
+            //入口通過後才close者, childTransaction之回調延後執行而遇關閉, lmdb回報Database is closed,
+            //統一為已關閉之訊息(T4: 訊息明示closed); 主鍵衝突者交易已實際執行, 保留其衝突訊息
+            if (isClosed() && !isestr(pkConflict)) {
+                res = new Error(getClosedMsg('insertBulk'))
+            }
+
         }
 
         //update, 不能保證插入多少, 一律重設快取
@@ -566,12 +599,12 @@ function WOrmLmdb(opt = {}) {
      * @param {Object|Array} data 輸入數據物件或陣列
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {boolean} [option.autoInsert=true] 輸入是否於儲存時發現原本無數據，則自動改以插入處理，預設為true
-     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數，單筆失敗者ok為0並附err，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數，單筆失敗者ok為0並附err，reject回傳錯誤訊息；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已處理之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認
      */
     async function save(data, option = {}) {
 
-        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
-        if (client.status === 'closed') {
+        //check client, 已關閉(含關閉進行中)為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (isClosed()) {
             return procClosed('save', data)
         }
         let isErr = false
@@ -589,6 +622,10 @@ function WOrmLmdb(opt = {}) {
 
         //res
         let res = null
+
+        //evs, 逐筆之事件先緩存, 待整批定案(resolve)後依序發出; 整批性錯誤而reject者不發出(T10.1第1條、T10.2)
+        let evs = []
+
         try {
 
             //check
@@ -613,8 +650,21 @@ function WOrmLmdb(opt = {}) {
                     //快速路徑, 先不開寫交易直接預讀, 內容相同者本就不須寫入, 可省去開啟寫交易之成本
                     //預讀值縱使已被其他寫入者更動而過期亦不影響正確性, 因內容相同時本次save等價於無操作,
                     //無操作可視為於預讀當下即已完成, 其後他人之寫入結果與[本次save先執行再輪到他人]相同
+                    //前提為預讀所見不早於本次呼叫開始, 由getValue之讀前重設保證(含同一程序之其他實例與其他程序已提交者);
+                    //若沿用呼叫前之快照, [預讀當下]將早於呼叫本身, 呼叫端於呼叫前已知之較新寫入會被略過而遺失
                     //註: 預讀僅用於判斷是否略過寫入, 不用於決定寫入內容, 寫入內容一律由交易內讀到之現值決定
-                    let vp = await getValue(v.id) //不會有catch
+                    let vp
+                    try {
+                        vp = await getValue(v.id, 'save')
+                    }
+                    catch (err) {
+                        //已關閉者往外拋; 其餘錯誤放棄快速路徑而續走寫交易, 結果由交易內之讀取決定,
+                        //快速路徑為省略寫交易之選擇性優化, 不可使原本可由寫交易完成之儲存失敗(如讀交易之reader slot不足)
+                        if (isClosed()) {
+                            throw err
+                        }
+                        vp = undefined
+                    }
                     if (iseobj(vp) && isEqual(merge({}, vp, v), vp)) {
                         //合併後與現值相同不須寫入, 惟已命中v.id故n為1
                         return {
@@ -708,6 +758,14 @@ function WOrmLmdb(opt = {}) {
                 }
                 catch (err) {
 
+                    //已關閉(含操作進行中被close)影響後續所有筆數, 屬整批性錯誤(T4), 往外拋令整批reject, 不降為該筆ok為0
+                    if (isClosed()) {
+                        throw new Error(getClosedMsg('save'))
+                    }
+
+                    //交易回調內已設inserted, 惟交易失敗時未實際寫入, 須重設以免發出insert事件
+                    inserted = false
+
                     //本筆失敗不中斷整批, 以ok為0並附err回報, 由呼叫端逐筆檢查
                     rest = {
                         n: 1,
@@ -726,15 +784,19 @@ function WOrmLmdb(opt = {}) {
                     //update, 不能保證插入多少, 一律重設快取
                     _cache = null
 
-                    //emit
-                    emitChange('insert', [v], rest)
+                    //evs, 待整批定案後發出
+                    evs.push(() => {
+                        emitChange('insert', [v], rest)
+                    })
 
                 }
 
-                //emit, 逐筆失敗於該筆結果定案後發出, 每筆一次
+                //evs, 逐筆失敗之error事件, 待整批定案後發出, 每筆一次
                 //此事件之發出不表示整批失敗, 整批仍resolve, 該筆以ok為0回報
                 if (rest.ok === 0) {
-                    emitError('save', [v], rest.err)
+                    evs.push(() => {
+                        emitError('save', [v], rest.err)
+                    })
                 }
 
                 return rest
@@ -750,8 +812,11 @@ function WOrmLmdb(opt = {}) {
         _cache = null
 
         //emit, 於change可能須使用select, 故須放在重設快取之後
-        //逐筆失敗之error事件已於各筆定案時發出, 故必早於本整批change
+        //逐筆事件依序先發出, 故必早於本整批change
         if (!isErr) {
+            each(evs, (fn) => {
+                fn()
+            })
             emitChange('save', data, res)
         }
 
@@ -772,12 +837,12 @@ function WOrmLmdb(opt = {}) {
      *
      * @memberOf WOrmLmdb
      * @param {Object|Array} data 輸入數據物件或陣列
-     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之刪除結果陣列，各筆為{n,nDeleted,ok}，n為主鍵命中筆數，單筆失敗或未給有效id者ok為0並附err，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之刪除結果陣列，各筆為{n,nDeleted,ok}，n為主鍵命中筆數，單筆失敗或未給有效id者ok為0並附err，reject回傳錯誤訊息；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認
      */
     async function del(data) {
 
-        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
-        if (client.status === 'closed') {
+        //check client, 已關閉(含關閉進行中)為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (isClosed()) {
             return procClosed('del', data)
         }
         let isErr = false
@@ -792,6 +857,10 @@ function WOrmLmdb(opt = {}) {
 
         //res
         let res = null
+
+        //evs, 逐筆之事件先緩存, 待整批定案(resolve)後依序發出; 整批性錯誤而reject者不發出(T10.1第1條)
+        let evs = []
+
         try {
 
             //check
@@ -824,8 +893,8 @@ function WOrmLmdb(opt = {}) {
                     }
                     else {
 
-                        //查找資料表內v.id
-                        let vv = await getValue(id) //不會有catch
+                        //查找資料表內v.id, 讀取之錯誤由下方catch處置
+                        let vv = await getValue(id, 'del')
 
                         //check
                         if (iseobj(vv)) {
@@ -857,6 +926,11 @@ function WOrmLmdb(opt = {}) {
                 }
                 catch (err) {
 
+                    //已關閉(含操作進行中被close)影響後續所有筆數, 屬整批性錯誤(T4), 往外拋令整批reject, 不降為該筆ok為0
+                    if (isClosed()) {
+                        throw new Error(getClosedMsg('del'))
+                    }
+
                     //本筆失敗不中斷整批, 以ok為0並附err回報, 由呼叫端逐筆檢查
                     rest = {
                         n: 1,
@@ -867,10 +941,12 @@ function WOrmLmdb(opt = {}) {
 
                 }
 
-                //emit, 逐筆失敗於該筆結果定案後發出, 每筆一次
+                //evs, 逐筆失敗之error事件, 待整批定案後發出, 每筆一次
                 //此事件之發出不表示整批失敗, 整批仍resolve, 該筆以ok為0回報
                 if (rest.ok === 0) {
-                    emitError('del', [v], rest.err)
+                    evs.push(() => {
+                        emitError('del', [v], rest.err)
+                    })
                 }
 
                 return rest
@@ -886,8 +962,11 @@ function WOrmLmdb(opt = {}) {
         _cache = null
 
         //emit, 於change可能須使用select, 故須放在重設快取之後
-        //逐筆失敗之error事件已於各筆定案時發出, 故必早於本整批change
+        //逐筆事件依序先發出, 故必早於本整批change
         if (!isErr) {
+            each(evs, (fn) => {
+                fn()
+            })
             emitChange('del', data, res)
         }
 
@@ -912,8 +991,8 @@ function WOrmLmdb(opt = {}) {
      */
     async function delAll(find = {}) {
 
-        //check client, closed為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
-        if (client.status === 'closed') {
+        //check client, 已關閉(含關閉進行中)為終態, 於任何檢查與寫入之前先行攔下(T4: 實例已關閉屬整批性錯誤)
+        if (isClosed()) {
             return procClosed('delAll', null)
         }
         let isErr = false
@@ -922,8 +1001,8 @@ function WOrmLmdb(opt = {}) {
         let res = null
         try {
 
-            //ltdt
-            let ltdt = await getData()
+            //ltdt, 一律直讀資料庫而不經快取, 刪除對象不可依可能過期之快取決定
+            let ltdt = readAll('delAll')
 
             //filter
             let nAll = size(ltdt)
@@ -957,15 +1036,12 @@ function WOrmLmdb(opt = {}) {
                 else {
                     //部份在find結果內
 
-                    //_kp
-                    let _kp = {}
-                    each(_res, (v, k) => {
-                        _kp[v.id] = { k, v }
-                    })
+                    //kp, 須刪除之主鍵, 須用Set: 以一般物件加in判斷時, 主鍵為constructor、toString等會因原型鏈而誤判為命中
+                    let kp = new Set(map(_res, 'id'))
 
                     //del
                     for (let v of ltdt) {
-                        if (haskey(_kp, v.id)) {
+                        if (kp.has(v.id)) {
                             //在find結果內代表須刪除
                             await client.del(v.id)
                         }
@@ -996,6 +1072,12 @@ function WOrmLmdb(opt = {}) {
         catch (err) {
             isErr = true
             res = err
+
+            //刪除途中被close者, lmdb回報之訊息不一, 統一為已關閉之訊息(T4: 訊息明示closed)
+            if (isClosed()) {
+                res = new Error(getClosedMsg('delAll'))
+            }
+
         }
 
         //update, 不能保證刪除多少, 一律重設快取
@@ -1019,7 +1101,8 @@ function WOrmLmdb(opt = {}) {
     }
 
     //close, 關閉內部LMDB env並釋放檔案鎖, close後該實例即報廢, 須重新new WOrmLmdb,
-    //再呼叫任何操作函數將立即reject(訊息明示closed), 不與[查無資料]同形
+    //呼叫close()之後(含其未完成之關閉進行中)再呼叫任何操作函數將立即reject(訊息明示closed), 不與[查無資料]同形;
+    //操作進行中被close者, 其後續步驟亦以整批性錯誤reject; 重複呼叫close()無妨, lmdb於關閉中與已關閉時皆正常回傳
     let close = async () => {
         if (client && client.status !== 'closed') {
             await client.close() //lmdb root database之close(), 回傳Promise

@@ -163,6 +163,28 @@ describe('event', function() {
         vget[14] = rt
         await woT.close()
 
+        //訂閱函數改寫所收到之res不得改變回傳結果, 亦不得因此改發error事件(T10.1第4、5條)
+        let woM = WOrm({ url, db: 'worm', cl: 'mut' })
+        let evsM = []
+        woM.on('change', function(mode, data, res) {
+            if (_.isArray(res)) {
+                res[0].ok = 0
+                delete res[0].nInserted
+            }
+            else {
+                res.ok = 0
+                delete res.nInserted
+            }
+        })
+        woM.on('error', function(mode) {
+            evsM.push(mode)
+        })
+        vget[15] = await woM.insert({ id: 'm1', a: 1 })
+        vget[16] = await woM.save({ id: 'm2', a: 2 }) //autoInsert, 另發insert事件
+        vget[17] = await woM.insert([{ id: 'm3' }], { returnList: true })
+        vget[18] = evsM
+        await woM.close()
+
     })
 
     //逐筆函數以整批為單位發出一次change, 不逐筆發出
@@ -237,6 +259,26 @@ describe('event', function() {
     vans[14] = { n: 1, nInserted: 1, ok: 1 }
     it(`should get ${JSON.stringify(vans[14])} for result not affected by throwing listener`, async function() {
         assert.strict.deepStrictEqual(vget[14], vans[14])
+    })
+
+    vans[15] = { n: 1, nInserted: 1, ok: 1 }
+    it(`should get ${JSON.stringify(vans[15])} for insert result not affected by listener mutating res`, async function() {
+        assert.strict.deepStrictEqual(vget[15], vans[15])
+    })
+
+    vans[16] = [{ n: 1, nInserted: 1, nModified: 0, ok: 1 }]
+    it(`should get ${JSON.stringify(vans[16])} for save result not affected by listener mutating res`, async function() {
+        assert.strict.deepStrictEqual(vget[16], vans[16])
+    })
+
+    vans[17] = [{ n: 1, nInserted: 1, ok: 1 }]
+    it(`should get ${JSON.stringify(vans[17])} for insert(returnList) result not affected by listener mutating res`, async function() {
+        assert.strict.deepStrictEqual(vget[17], vans[17])
+    })
+
+    vans[18] = []
+    it(`should get ${JSON.stringify(vans[18])} for error events by listener mutating res`, async function() {
+        assert.strict.deepStrictEqual(vget[18], vans[18])
     })
 
 })

@@ -83,6 +83,21 @@ describe('delAll', function() {
             })
         vget[6] = rt
 
+        //部份命中時, 主鍵與物件原型屬性同名(constructor、toString、__proto__)之不符條件者不得被刪除
+        await wo.insert([
+            { id: 'target', g: 'remove' },
+            { id: 'constructor', g: 'keep' },
+            { id: 'toString', g: 'keep' },
+            { id: '__proto__', g: 'keep' },
+            { id: 'normal', g: 'keep' },
+        ])
+        vget[7] = await wo.delAll({ g: 'remove' })
+        vget[8] = await wo.select().then(function(msg) {
+            return msg.map(function(v) {
+                return v.id
+            }).sort()
+        })
+
         await wo.close()
 
     })
@@ -116,6 +131,16 @@ describe('delAll', function() {
     vans[6] = { n: 0, nDeleted: 0, ok: 1 }
     it(`should get ${JSON.stringify(vans[6])} for delAll on empty collection`, async function() {
         assert.strict.deepStrictEqual(vget[6], vans[6])
+    })
+
+    vans[7] = { n: 1, nDeleted: 1, ok: 1 }
+    it(`should get ${JSON.stringify(vans[7])} for delAll(find) with ids same as prototype properties`, async function() {
+        assert.strict.deepStrictEqual(vget[7], vans[7])
+    })
+
+    vans[8] = ['__proto__', 'constructor', 'normal', 'toString']
+    it(`should get ${JSON.stringify(vans[8])} for records kept after delAll(find) with ids same as prototype properties`, async function() {
+        assert.strict.deepStrictEqual(vget[8], vans[8])
     })
 
 })

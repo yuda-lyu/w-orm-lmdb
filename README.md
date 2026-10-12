@@ -10,7 +10,7 @@ An operator for lmdb in nodejs.
 
 ## Keypoint
 
-注意: 因lmdb-js綁定層限制, 無法支援跨程序併發, 須使用單程序操作lmdb才能避免競爭條件失效.
+注意: 因lmdb-js綁定層限制, 跨程序同時寫入無法保證原子性, 寫入須由單一程序進行, 或自行以跨程序鎖序列化. 讀取則可見呼叫前已提交之資料, 含其他程序與同一程序其他實例之提交(select開啟useCache時除外).
 
 ### Use a single process for writing
 
@@ -39,7 +39,17 @@ What that means in practice when two processes write concurrently:
 - `save` may lose an update, keeping only one side of two concurrent merges.
 - Key uniqueness and record count stay correct, and records that already exist are never overwritten. The database is not left structurally inconsistent.
 
-If your deployment needs more than one process, serialize writes yourself: keep a single writer process, or guard writes with a cross-process lock (a lock file, or a queue). Readers are unaffected — `select` and `selectByPk` are safe from any number of processes.
+If your deployment needs more than one process, serialize writes yourself: keep a single writer process, or guard writes with a cross-process lock (a lock file, or a queue).
+
+### Reads see every commit made before the call
+
+Every read — `select`, `selectByPk`, and the reads inside `save`, `del` and `delAll` — sees all data committed before the call started by any writer other than this instance: other processes, and other instances opened on the same path in the same process. Reads are safe from any number of processes, and the write serialization above relies on this: a process that takes its turn after another process has committed sees that commit.
+
+The one exception is `select` with `useCache: true`, which returns its cache. The cache only reflects writes made through the same instance, so turn it on only when no other instance or process writes to the collection. `delAll` always reads the database and never uses the cache.
+
+`lmdb-js` keeps one read snapshot per opened database instance and refreshes it on the next timers phase, or right after a commit made through that same instance. A read issued just after someone else commits, such as inside the callback that receives another process's "done" message, would otherwise still see the snapshot from before that commit. `w-orm-lmdb` therefore resets the read snapshot before every read outside a write transaction, which is the `resetReadTxn()` call that `lmdb-js` documents for multi-process use.
+
+Measured on Windows 11 with `lmdb-js` 3.5.6, 100 runs per case: without the reset, 14 of 25 combinations of an operation and an earlier write by a second process returned results based on the old snapshot in 77–96% of runs. `select` and `selectByPk` missed the new data, `save` skipped a write because it compared against the old value, `del` reported a miss, and `delAll` deleted a row that the other process had just changed so that it no longer matched the filter. Two instances in one process failed the same way; `save` lost a later update in 64–97% of runs. With the reset, every combination was correct in every run. The reset costs about 0.4 µs per `selectByPk`.
 
 ## Documentation
 To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-orm-lmdb/WOrm.html).
