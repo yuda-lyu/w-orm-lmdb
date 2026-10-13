@@ -12,6 +12,8 @@ An operator for lmdb in nodejs.
 
 注意: 因lmdb-js綁定層限制, 跨程序同時寫入無法保證原子性, 寫入須由單一程序進行, 或自行以跨程序鎖序列化. 讀取則可見呼叫前已提交之資料, 含其他程序與同一程序其他實例之提交(select開啟useCache時除外).
 
+注意: 主鍵id經LMDB鍵編碼後不可超過1978位元組(UTF-8, 首字元碼小於28者另計1位元組), 超過者insert與insertBulk整批reject而不寫入任何一筆, save該筆ok為0, selectByPk與del視為未命中. insert、insertBulk與save之數據元素須為物件, 否則整批reject.
+
 ### Use a single process for writing
 
 `w-orm-lmdb` guarantees write atomicity **within a single process only**. Do not have two or more processes writing to the same collection concurrently.
@@ -50,6 +52,12 @@ The one exception is `select` with `useCache: true`, which returns its cache. Th
 `lmdb-js` keeps one read snapshot per opened database instance and refreshes it on the next timers phase, or right after a commit made through that same instance. A read issued just after someone else commits, such as inside the callback that receives another process's "done" message, would otherwise still see the snapshot from before that commit. `w-orm-lmdb` therefore resets the read snapshot before every read outside a write transaction, which is the `resetReadTxn()` call that `lmdb-js` documents for multi-process use.
 
 Measured on Windows 11 with `lmdb-js` 3.5.6, 100 runs per case: without the reset, 14 of 25 combinations of an operation and an earlier write by a second process returned results based on the old snapshot in 77–96% of runs. `select` and `selectByPk` missed the new data, `save` skipped a write because it compared against the old value, `del` reported a miss, and `delAll` deleted a row that the other process had just changed so that it no longer matched the filter. Two instances in one process failed the same way; `save` lost a later update in 64–97% of runs. With the reset, every combination was correct in every run. The reset costs about 0.4 µs per `selectByPk`.
+
+### Rows that cannot be written are rejected before anything is written
+
+A primary key (`id`) may take at most 1978 bytes once encoded as an LMDB key: its UTF-8 bytes, plus one byte when the first character code is below 28. `insert` and `insertBulk` check every row before writing anything. If any row has a longer key, a value that cannot be serialized (such as a `Symbol`, a `BigInt` beyond 64 bits, or a circular reference), or is not an object (such as an array, `Date`, `Map` or `Set`), the whole call rejects and nothing is written. The message names the row, for example `can not insert by data[1], Key size is larger than the maximum key size (1978)`.
+
+`save` handles a row whose key is too long, or whose value cannot be serialized, as a failure of that row only: that row gets `ok: 0` with `err`, and the other rows are saved. `selectByPk`, `del` and the lookups inside `save` treat a key that is too long as not found, because such a key cannot exist.
 
 ## Documentation
 To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-orm-lmdb/WOrm.html).
