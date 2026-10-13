@@ -89,13 +89,16 @@ data為本次操作之輸入數據，無輸入數據者為null。
 err為錯誤訊息字串，內容與正規管道所送出者一致。
 整批性錯誤於reject之前發出；逐筆失敗於整批定案後依序發出，每筆一次，整批因整批性錯誤而reject者不發出。
 註: 逐筆失敗時整批仍resolve，故收到本事件不表示該次呼叫失敗；正常結果(如查無數據、主鍵未命中、全數已存在)不發出本事件。</p>
-<p>讀取(select、selectByPk，以及save、del、delAll內之讀取)可見本次呼叫前已提交之資料，含同一程序之其他實例與其他程序之提交；惟select於useCache開啟且快取命中時回傳快取。</p></li></ul></dd>
+<p>讀取(select、selectByPk，以及save、del、delAll內之讀取)可見本次呼叫前已提交之資料，含同一程序之其他實例與其他程序之提交；惟select於useCache開啟且快取命中時回傳快取。</p>
+<p>主鍵(id)經LMDB鍵編碼後不可超過1978位元組(UTF-8；首字元碼小於28者另計1位元組跳脫)：insert與insertBulk遇之整批reject而不寫入任何一筆，save該筆ok為0；
+讀取側(selectByPk、del與save內之讀取)對超過者一律視為未命中。
+註: 值非物件之紀錄(他方寫入)於insert與insertBulk視為已存在(以鍵判定)，於selectByPk、save與del視為不存在。</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line52">line 52</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line57">line 57</a>
     </li></ul></dd>
     
 
@@ -524,7 +527,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line842">line 842</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line903">line 903</a>
     </li></ul></dd>
     
 
@@ -642,7 +645,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve回傳與輸入等長之刪除結果陣列，各筆為{n,nDeleted,ok}，n為主鍵命中筆數，單筆失敗或未給有效id者ok為0並附err，reject回傳錯誤訊息；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認</p>
+    <p>回傳Promise，resolve回傳與輸入等長之刪除結果陣列，各筆為{n,nDeleted,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗或未給有效id者ok為0並附err，reject回傳錯誤訊息；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認</p>
 </div>
 
 
@@ -685,7 +688,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line992">line 992</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1053">line 1053</a>
     </li></ul></dd>
     
 
@@ -820,7 +823,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve回傳刪除結果物件{n,nDeleted,ok}，n與nDeleted同為實際刪除筆數，reject回傳錯誤訊息</p>
+    <p>回傳Promise，resolve回傳刪除結果物件{n,nDeleted,ok}，n與nDeleted同為實際刪除筆數，reject回傳錯誤訊息；刪除依資料庫之實際鍵；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾，呼叫端須重新讀取確認</p>
 </div>
 
 
@@ -863,7 +866,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line372">line 372</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line427">line 427</a>
     </li></ul></dd>
     
 
@@ -1107,7 +1110,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve依returnList回傳插入結果：預設回傳聚合物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數；returnList為true時回傳逐筆陣列，各筆n恆為1(主鍵命中或經插入)、ok恆為1(insert之錯誤皆屬整批性而reject，不進逐筆)；reject回傳錯誤訊息</p>
+    <p>回傳Promise，resolve依returnList回傳插入結果：預設回傳聚合物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數；returnList為true時回傳逐筆陣列，各筆n恆為1(主鍵命中或經插入)、ok恆為1(insert之錯誤皆屬整批性而reject，不進逐筆)；reject回傳錯誤訊息。整批性錯誤(實例已關閉、autoGenPk為false而未帶有效主鍵、數據元素非物件、主鍵經LMDB鍵編碼後超過1978位元組、數據無法序列化)皆於任何寫入之前檢出而reject，不寫入任何一筆</p>
 </div>
 
 
@@ -1144,7 +1147,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 <dl class="details">
     
     <dt class="tag-description">Description:</dt>
-    <dd class="tag-description"><ul class="dummy"><li><p>批次插入數據，全批視為一個單位，全部插入成功或一筆都不寫入
+    <dd class="tag-description"><ul class="dummy"><li><p>批次插入數據，全批視為一個單位，全部插入成功或一筆都不寫入；主鍵衝突以外之整批性錯誤(同insert)亦於任何寫入之前檢出而reject
 註: 本函數非insert之加速版，兩者衝突政策不同。insert於主鍵已存在時跳過該筆而整批ok為1，
 本函數則整批reject且不寫入任何一筆；同批含重複主鍵者亦視為衝突。確無衝突時兩者結果相同
 註: 於本套件不會較insert快，因insert本即以Promise.all一次送出全部條件寫入而非逐筆await，
@@ -1154,7 +1157,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line497">line 497</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line555">line 555</a>
     </li></ul></dd>
     
 
@@ -1315,7 +1318,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line604">line 604</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line665">line 665</a>
     </li></ul></dd>
     
 
@@ -1559,7 +1562,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數，單筆失敗者ok為0並附err，reject回傳錯誤訊息；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已處理之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認</p>
+    <p>回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗者(如須插入而主鍵超過上述上限、數據無法序列化)ok為0並附err，reject回傳錯誤訊息；數據元素非物件等整批性錯誤於任何寫入之前reject；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已處理之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認</p>
 </div>
 
 
@@ -1602,7 +1605,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line252">line 252</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line307">line 307</a>
     </li></ul></dd>
     
 
@@ -1781,7 +1784,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line316">line 316</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line371">line 371</a>
     </li></ul></dd>
     
 
@@ -1896,7 +1899,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve回傳數據物件，若無此主鍵則回傳null，reject回傳錯誤訊息</p>
+    <p>回傳Promise，resolve回傳數據物件，若無此主鍵則回傳null(主鍵經LMDB鍵編碼後超過1978位元組者必不存在，亦回傳null)，reject回傳錯誤訊息</p>
 </div>
 
 
@@ -1938,7 +1941,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Mon Oct 12 2026 21:24:38 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 14 2026 05:15:44 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

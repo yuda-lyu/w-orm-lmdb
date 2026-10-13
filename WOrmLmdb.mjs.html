@@ -45,7 +45,7 @@
     
     <section>
         <article>
-            <pre class="prettyprint source linenums"><code>import { open, ABORT } from 'lmdb'
+            <pre class="prettyprint source linenums"><code>import { open, ABORT, keyValueToBuffer } from 'lmdb'
 // import mingo from 'mingo' //mingo內未更新import寫法, 會導致ERR_UNSUPPORTED_DIR_IMPORT, 故須改用require引入使用
 import mingo from './reqMingo.js'
 import size from 'lodash-es/size.js'
@@ -59,6 +59,7 @@ import isestr from 'wsemi/src/isestr.mjs'
 import isarr from 'wsemi/src/isarr.mjs'
 import isearr from 'wsemi/src/isearr.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
+import isobj from 'wsemi/src/isobj.mjs'
 import isbol from 'wsemi/src/isbol.mjs'
 import evem from 'wsemi/src/evem.mjs'
 import genIDSeq from 'wsemi/src/genIDSeq.mjs'
@@ -86,6 +87,10 @@ import pmSeries from 'wsemi/src/pmSeries.mjs'
  * 註: 逐筆失敗時整批仍resolve，故收到本事件不表示該次呼叫失敗；正常結果(如查無數據、主鍵未命中、全數已存在)不發出本事件。
  *
  * 讀取(select、selectByPk，以及save、del、delAll內之讀取)可見本次呼叫前已提交之資料，含同一程序之其他實例與其他程序之提交；惟select於useCache開啟且快取命中時回傳快取。
+ *
+ * 主鍵(id)經LMDB鍵編碼後不可超過1978位元組(UTF-8；首字元碼小於28者另計1位元組跳脫)：insert與insertBulk遇之整批reject而不寫入任何一筆，save該筆ok為0；
+ * 讀取側(selectByPk、del與save內之讀取)對超過者一律視為未命中。
+ * 註: 值非物件之紀錄(他方寫入)於insert與insertBulk視為已存在(以鍵判定)，於selectByPk、save與del視為不存在。
  *
  * @class
  * @param {Object} [opt={}] 輸入設定物件，預設{}
@@ -146,8 +151,8 @@ function WOrmLmdb(opt = {}) {
     //ee
     let ee = evem()
 
-    //readAll, 由資料庫讀取全部數據而不經快取, mode為呼叫之操作別, 供已關閉時之錯誤訊息使用
-    let readAll = (mode) => {
+    //readAll, 由資料庫讀取全部數據而不經快取, mode為呼叫之操作別, 供已關閉時之錯誤訊息使用, withKey為true時各筆改回{key,value}
+    let readAll = (mode, withKey = false) => {
 
         //prepareRead, 須與其後之讀取同步執行
         prepareRead(mode)
@@ -160,7 +165,7 @@ function WOrmLmdb(opt = {}) {
         let it = client.getRange()[Symbol.iterator]()
         try {
             for (let r = it.next(); !r.done; r = it.next()) {
-                ltdt.push(r.value.value)
+                ltdt.push(withKey ? { key: r.value.key, value: r.value.value } : r.value.value)
             }
         }
         finally {
@@ -261,10 +266,16 @@ function WOrmLmdb(opt = {}) {
         return String(err)
     }
 
-    //procPk, 依autoGenPk處理各數據之主鍵, 供insert與save共用
+    //procPk, 依autoGenPk處理各數據之主鍵, 供insert、insertBulk與save共用
+    //各筆須為物件: 陣列、Date、Map、Set等經編碼後不保留id欄位, 寫入後無從以主鍵管理, 屬呼叫端未履行契約之整批性錯誤;
     //autoGenPk為true時補值; 為false時不補值, 未帶有效主鍵者屬呼叫端未履行契約, 拋出為整批性錯誤,
     //且檢查於任何寫入之前完成, 故不會有部份筆數已寫入而整批失敗之情形
     let procPk = (data, fnName) => {
+        each(data, function(v, k) {
+            if (!isobj(v)) {
+                throw new Error(`can not ${fnName} by data[${k}] which is not an object`)
+            }
+        })
         if (autoGenPk) {
             return map(data, function(v) {
                 if (!isestr(v.id)) {
@@ -281,11 +292,55 @@ function WOrmLmdb(opt = {}) {
         return data
     }
 
+    //maxKeySize, lmdb之鍵經編碼後之位元組數上限(預設1978)
+    let maxKeySize = get(client, 'maxKeySize', 1978)
+
+    //keyFits, 鍵經lmdb之鍵編碼後之位元組數是否不超過maxKeySize, 寫入側與讀取側共用同一判定
+    //以lmdb公開匯出之keyValueToBuffer量測, 與lmdb之判定一致(首字元碼小於28者多1位元組跳脫, 中文每字3位元組);
+    //其暫存緩衝區為8192位元組, 超過者拋錯, 必超過maxKeySize
+    let keyFits = (key) => {
+        let n = -1
+        try {
+            n = keyValueToBuffer(key).length
+        }
+        catch (err) {
+            n = -1
+        }
+        return n >= 0 &amp;&amp; n &lt;= maxKeySize
+    }
+
+    //procWritable, 供insert與insertBulk於任何寫入之前檢查各筆可寫入, 任一筆不可寫入即拋出為整批性錯誤而不寫入任何一筆
+    //1.主鍵經lmdb之鍵編碼後之位元組數不可超過maxKeySize: 超過者lmdb於寫入呼叫內同步拋錯, insert一次排入多筆條件寫入,
+    //  拋錯前已排入者仍於其後提交(部份寫入且reject當下不可見); 壞鍵為該事件迴圈之第一筆寫入時, lmdb-js之close()不等候其已排程之批次,
+    //  該批次於關閉後啟動寫入而拋出未捕捉例外, 行程崩潰
+    //2.數據須可被編碼(如Symbol、超出64位元之BigInt、循環參照不可編碼): 編碼同樣於寫入呼叫內同步執行, 理由同上
+    //訊息以lmdb或編碼器之原訊息為後綴, 與lmdb原本拋出者一致而可辨識
+    let procWritable = (data, fnName) => {
+        each(data, function(v, k) {
+            if (!keyFits(v.id)) {
+                throw new Error(`can not ${fnName} by data[${k}], Key size is larger than the maximum key size (${maxKeySize})`)
+            }
+            try {
+                client.encoder.encode(v)
+            }
+            catch (err) {
+                throw new Error(`can not ${fnName} by data[${k}], ${getErrMsg(err)}`)
+            }
+        })
+    }
+
     //getValue, mode為呼叫之操作別, 供已關閉時之錯誤訊息使用
     //讀取之錯誤(如已關閉、數據無法解碼)不可攔下回null, 否則與[查無資料]同形, 須交由呼叫端之錯誤處理;
     //lmdb-js於查無數據時回undefined而不拋錯, 故會拋出者皆為真錯誤
     let getValue = async (key, mode) => {
         prepareRead(mode)
+
+        //鍵超過lmdb之鍵長上限者必不存在, 視為未命中而不呼叫lmdb之讀取: 其讀取API以4096位元組之緩衝寫鍵,
+        //4093位元組起拋錯, 否則同為不存在之鍵將依長度而回未命中或錯誤; 須於prepareRead之後, 令已關閉之判斷優先
+        if (!keyFits(key)) {
+            return undefined
+        }
+
         return client.get(key)
     }
 
@@ -358,7 +413,7 @@ function WOrmLmdb(opt = {}) {
      *
      * @memberOf WOrmLmdb
      * @param {String} pk 輸入主鍵值字串，本套件之主鍵欄位為id
-     * @returns {Promise} 回傳Promise，resolve回傳數據物件，若無此主鍵則回傳null，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳數據物件，若無此主鍵則回傳null(主鍵經LMDB鍵編碼後超過1978位元組者必不存在，亦回傳null)，reject回傳錯誤訊息
      */
     async function selectByPk(pk) {
 
@@ -414,7 +469,7 @@ function WOrmLmdb(opt = {}) {
      * @param {Object|Array} data 輸入數據物件或陣列
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {Boolean} [option.returnList=false] 輸入是否改回傳逐筆結果布林值，預設false。給true時回傳與輸入等長保序之陣列，各筆為{n,nInserted,ok}，nInserted為1即該筆為新增；聚合計數只回答有幾筆是新的，逐筆結果方能回答是哪幾筆，供下游僅對新資料執行昂貴動作。回傳形式由呼叫點靜態決定，共用之結果處理程式碼不可跨不同取值之呼叫點混用
-     * @returns {Promise} 回傳Promise，resolve依returnList回傳插入結果：預設回傳聚合物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數；returnList為true時回傳逐筆陣列，各筆n恆為1(主鍵命中或經插入)、ok恆為1(insert之錯誤皆屬整批性而reject，不進逐筆)；reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve依returnList回傳插入結果：預設回傳聚合物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數；returnList為true時回傳逐筆陣列，各筆n恆為1(主鍵命中或經插入)、ok恆為1(insert之錯誤皆屬整批性而reject，不進逐筆)；reject回傳錯誤訊息。整批性錯誤(實例已關閉、autoGenPk為false而未帶有效主鍵、數據元素非物件、主鍵經LMDB鍵編碼後超過1978位元組、數據無法序列化)皆於任何寫入之前檢出而reject，不寫入任何一筆
      */
     async function insert(data, option = {}) {
 
@@ -443,12 +498,12 @@ function WOrmLmdb(opt = {}) {
             }
         }
 
-        //cloneDeep, 與外部數據脫勾
-        data = cloneDeep(data)
-
         //res
         let res = null
         try {
+
+            //cloneDeep, 與外部數據脫勾; 置於try內, 無法複製之輸入(如過深之巢狀、取值拋錯之getter)同屬整批性錯誤而先發出error事件
+            data = cloneDeep(data)
 
             //check
             if (!isarr(data)) {
@@ -457,6 +512,9 @@ function WOrmLmdb(opt = {}) {
 
             //check id
             data = procPk(data, 'insert')
+
+            //check writable, 須於任何寫入之前完成, 其後之寫入呼叫不再同步拋錯, 故不會部份寫入
+            procWritable(data, 'insert')
 
             //each
             //ifNoExists, 由LMDB於同一寫交易內原子完成[檢查v.id未存在]與[寫入], 併發時同一v.id僅有一次成功,
@@ -531,7 +589,7 @@ function WOrmLmdb(opt = {}) {
     }
 
     /**
-     * 批次插入數據，全批視為一個單位，全部插入成功或一筆都不寫入
+     * 批次插入數據，全批視為一個單位，全部插入成功或一筆都不寫入；主鍵衝突以外之整批性錯誤(同insert)亦於任何寫入之前檢出而reject
      * 註: 本函數非insert之加速版，兩者衝突政策不同。insert於主鍵已存在時跳過該筆而整批ok為1，
      * 本函數則整批reject且不寫入任何一筆；同批含重複主鍵者亦視為衝突。確無衝突時兩者結果相同
      * 註: 於本套件不會較insert快，因insert本即以Promise.all一次送出全部條件寫入而非逐筆await，
@@ -558,9 +616,6 @@ function WOrmLmdb(opt = {}) {
             }
         }
 
-        //cloneDeep, 與外部數據脫勾
-        data = cloneDeep(data)
-
         //res
         let res = null
 
@@ -569,6 +624,9 @@ function WOrmLmdb(opt = {}) {
 
         try {
 
+            //cloneDeep, 與外部數據脫勾; 置於try內, 無法複製之輸入同屬整批性錯誤而先發出error事件
+            data = cloneDeep(data)
+
             //check
             if (!isarr(data)) {
                 data = [data]
@@ -576,6 +634,9 @@ function WOrmLmdb(opt = {}) {
 
             //check id
             data = procPk(data, 'insertBulk')
+
+            //check writable, 交易回滾雖已保證全無寫入, 仍於寫入前檢出以與insert之訊息一致
+            procWritable(data, 'insertBulk')
 
             //nAll
             let nAll = size(data)
@@ -646,7 +707,7 @@ function WOrmLmdb(opt = {}) {
      * @param {Object|Array} data 輸入數據物件或陣列
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {boolean} [option.autoInsert=true] 輸入是否於儲存時發現原本無數據，則自動改以插入處理，預設為true
-     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數，單筆失敗者ok為0並附err，reject回傳錯誤訊息；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已處理之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認
+     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗者(如須插入而主鍵超過上述上限、數據無法序列化)ok為0並附err，reject回傳錯誤訊息；數據元素非物件等整批性錯誤於任何寫入之前reject；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已處理之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認
      */
     async function save(data, option = {}) {
 
@@ -661,9 +722,6 @@ function WOrmLmdb(opt = {}) {
             return []
         }
 
-        //cloneDeep, 與外部數據脫勾
-        data = cloneDeep(data)
-
         //autoInsert
         let autoInsert = get(option, 'autoInsert', true)
 
@@ -674,6 +732,9 @@ function WOrmLmdb(opt = {}) {
         let evs = []
 
         try {
+
+            //cloneDeep, 與外部數據脫勾; 置於try內, 無法複製之輸入同屬整批性錯誤而先發出error事件
+            data = cloneDeep(data)
 
             //check
             if (!isarr(data)) {
@@ -732,8 +793,8 @@ function WOrmLmdb(opt = {}) {
                     //若將client.get或client.put置於await之後, 該操作會逸出本交易而失去原子性
                     await client.transaction(() => {
 
-                        //查找資料表內v.id
-                        let vv = client.get(v.id)
+                        //查找資料表內v.id, 鍵超過lmdb之鍵長上限者必不存在, 視為未命中而不呼叫lmdb之讀取(同getValue)
+                        let vv = keyFits(v.id) ? client.get(v.id) : undefined
 
                         //existed
                         existed = iseobj(vv)
@@ -884,7 +945,7 @@ function WOrmLmdb(opt = {}) {
      *
      * @memberOf WOrmLmdb
      * @param {Object|Array} data 輸入數據物件或陣列
-     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之刪除結果陣列，各筆為{n,nDeleted,ok}，n為主鍵命中筆數，單筆失敗或未給有效id者ok為0並附err，reject回傳錯誤訊息；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認
+     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之刪除結果陣列，各筆為{n,nDeleted,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗或未給有效id者ok為0並附err，reject回傳錯誤訊息；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認
      */
     async function del(data) {
 
@@ -899,9 +960,6 @@ function WOrmLmdb(opt = {}) {
             return []
         }
 
-        //cloneDeep, 與外部數據脫勾
-        data = cloneDeep(data)
-
         //res
         let res = null
 
@@ -909,6 +967,9 @@ function WOrmLmdb(opt = {}) {
         let evs = []
 
         try {
+
+            //cloneDeep, 與外部數據脫勾; 置於try內, 無法複製之輸入同屬整批性錯誤而先發出error事件
+            data = cloneDeep(data)
 
             //check
             if (!isarr(data)) {
@@ -1034,7 +1095,7 @@ function WOrmLmdb(opt = {}) {
      *
      * @memberOf WOrmLmdb
      * @param {Object} [find={}] 輸入刪除條件物件
-     * @returns {Promise} 回傳Promise，resolve回傳刪除結果物件{n,nDeleted,ok}，n與nDeleted同為實際刪除筆數，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳刪除結果物件{n,nDeleted,ok}，n與nDeleted同為實際刪除筆數，reject回傳錯誤訊息；刪除依資料庫之實際鍵；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾，呼叫端須重新讀取確認
      */
     async function delAll(find = {}) {
 
@@ -1048,64 +1109,29 @@ function WOrmLmdb(opt = {}) {
         let res = null
         try {
 
-            //ltdt, 一律直讀資料庫而不經快取, 刪除對象不可依可能過期之快取決定
-            let ltdt = readAll('delAll')
+            //ltkv, 一律直讀資料庫而不經快取, 刪除對象不可依可能過期之快取決定
+            //刪除依資料庫之實際鍵而非數據之id欄位: 數據不帶有效id者(如他方寫入)以id刪除會拋錯, 致整表無從刪除
+            let ltkv = readAll('delAll', true)
 
-            //filter
-            let nAll = size(ltdt)
-            let nDel = 0
+            //kps, 須刪除之鍵, 有條件者逐筆以同一查詢條件判定是否命中
+            //判定逐筆進行而不另建主鍵對照, 故無以一般物件加in判斷時之原型鏈誤判(主鍵為constructor、toString等)
+            let kps = []
             if (iseobj(find)) {
-
-                //q
                 let q = new mingo.Query(find)
-                // console.log('q', q)
-
-                //find
-                let _res = q.find(ltdt).all()
-                // console.log('_res', _res)
-
-                //nDel
-                nDel = size(_res)
-                // console.log('nDel', nDel)
-
-                if (nDel === 0) {
-                    //未有find結果等於不刪除
-                }
-                else if (nAll === nDel) {
-                    //全在find結果內等於全部刪除
-
-                    //empty
-                    for (let v of ltdt) {
-                        await client.del(v.id)
+                for (let kv of ltkv) {
+                    if (q.test(kv.value)) {
+                        kps.push(kv.key)
                     }
-
-                }
-                else {
-                    //部份在find結果內
-
-                    //kp, 須刪除之主鍵, 須用Set: 以一般物件加in判斷時, 主鍵為constructor、toString等會因原型鏈而誤判為命中
-                    let kp = new Set(map(_res, 'id'))
-
-                    //del
-                    for (let v of ltdt) {
-                        if (kp.has(v.id)) {
-                            //在find結果內代表須刪除
-                            await client.del(v.id)
-                        }
-                    }
-
                 }
             }
             else {
+                kps = map(ltkv, 'key')
+            }
+            let nDel = size(kps)
 
-                //nDel
-                nDel = nAll
-
-                //empty
-                for (let v of ltdt) {
-                    await client.del(v.id)
-                }
-
+            //del
+            for (let k of kps) {
+                await client.del(k)
             }
 
             //res, n為實際刪除筆數而非全表筆數, 故與nDeleted同值
@@ -1185,7 +1211,7 @@ export default WOrmLmdb
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Mon Oct 12 2026 21:24:38 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 14 2026 05:15:44 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
