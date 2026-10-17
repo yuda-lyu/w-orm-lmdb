@@ -123,7 +123,7 @@ async function test() {
     spc = _.sortBy(spc, 'name')
     console.log('select by $or, $and, $ne, $in, $nin', spc)
 
-    // //select by regex //mingo不支援regex
+    // //select by regex //系列條件白名單不支援$regex(含$options), 會整批reject(invalid find: unsupported operator), 須改為select後自行過濾
     // let sr = await wo.select({ name: { $regex: 'PeT', $options: '$i' } })
     // console.log('selectReg', sr)
 

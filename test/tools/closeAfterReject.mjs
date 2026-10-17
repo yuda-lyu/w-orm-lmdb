@@ -51,6 +51,17 @@ else if (sc === 'delAllIdless') {
     await wo.delAll().catch(swallow)
     await wo.close()
 }
+else if (sc === 'delAllBadFind') {
+    //壞條件(白名單外運算子)之delAll整批reject(帳本R-FIND-01: 未讀取、未刪除), 其後立即close, 重開後輸出剩餘筆數
+    let wo = WOrm(opt)
+    await wo.insert([{ id: 'k1', g: 'A' }, { id: 'k2', g: 'B' }, { id: 'k3', g: 'B' }])
+    await wo.delAll({ $where: () => true }).catch(swallow)
+    await wo.close()
+    let wo2 = WOrm(opt)
+    let rest = await wo2.select()
+    await wo2.close()
+    process.stdout.write(`rest=${rest.length}\n`)
+}
 
 //讓出數個check與timers階段, 令已排程之批次有機會執行
 await new Promise((resolve) => setTimeout(resolve, 100))

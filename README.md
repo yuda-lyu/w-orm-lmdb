@@ -59,6 +59,31 @@ A primary key (`id`) may take at most 1978 bytes once encoded as an LMDB key: it
 
 `save` handles a row whose key is too long, or whose value cannot be serialized, as a failure of that row only: that row gets `ok: 0` with `err`, and the other rows are saved. `selectByPk`, `del` and the lookups inside `save` treat a key that is too long as not found, because such a key cannot exist.
 
+### Condition (`find`) whitelist (條件(find)白名單)
+
+`select` and `delAll` take the same `find` condition and check it the same way, at the entry of the call: after the closed check and before anything is read or deleted. The check is `cvOrmFind` of `wsemi`, shared by the whole `w-orm-*` series, and the query and the deletion use only the checked copy, never the object the caller passed in. A condition outside the whitelist rejects the whole call with `invalid find: <reason> at [<path>]`, an `error` event is emitted once before the rejection, nothing is read or deleted and no `change` event is emitted.
+
+Accepted:
+
+- No condition (omitted, `undefined` or `{}`): all rows. `delAll()` with no condition deletes every row, so use `delAll` carefully and only when needed; `select(find)` shows what `delAll(find)` will delete (unless `useCache` is on and another instance or process has written since: `select` may then return the cache, while `delAll` always reads the database).
+- Field equality `{ field: scalar }`, several fields are ANDed. A scalar is a string (without NUL characters or lone surrogates), a finite number, a boolean or a valid `Date`. `null` is allowed only in field equality, `$eq` and `$ne`.
+- Field operators `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte` (scalar value) and `$in`, `$nin` (array of scalars; `$in: []` matches nothing, `$nin: []` is rejected). Several operators on one field are ANDed.
+- Document-level `$and` and `$or`: a non-empty array of non-empty condition objects, nestable.
+- Field names match `^[\p{L}_][\p{L}\p{M}\p{N}_]*$`, at most 128 characters, and are not `__proto__`; a dotted path such as `'o.k'` is not a field name.
+- Limits: nesting depth 32, 1000 items in `$and`/`$or`, 10000 items in `$in`/`$nin`, 100000 nodes in total.
+
+Rejected as a whole: a value that is not a condition object (`null`, array, string, number, boolean, function, `Date`, `RegExp`, `Map`, `Set`, class instance, ...); any other operator (`$not`, `$nor`, `$regex`, `$options`, `$exists`, `$where`, `$expr`, `$type`, `$mod`, `$elemMatch`, `$size`, `$all`, ...); field-level `$and`/`$or`; `undefined`, `NaN`, `Infinity`, invalid `Date`, `BigInt`, function, `Symbol` or `RegExp` values; array or nested-object equality; `$nin: []`, `$and: []`, `$or: []`, `{}` inside `$and`/`$or`, `{ field: {} }`; `null` in `$gt`/`$gte`/`$lt`/`$lte`/`$in`/`$nin`; symbol keys, getters, non-enumerable keys, sparse arrays.
+
+Semantics are MongoDB-style: `{ f: null }` matches rows where `f` is `null` or missing, and `$ne: x` (x is not `null`) and `$nin` also match rows where the field is `null` or missing, while `$ne: null` excludes them. A field name that is also a member of `Object.prototype` (`constructor`, `toString`, `hasOwnProperty`, ...) is treated as missing in rows that do not have it as an own field. A scalar or `$in` condition on an array-valued field still matches by element (`{ tags: 'x' }` matches `tags: ['x', 'y']`). For the same result on every `w-orm-*` backend, write it out explicitly: exclude null/missing with `{ $and: [{ f: { $ne: null } }, { f: { $ne: x } }] }`, include them with `{ $or: [{ f: null }, { f: { $ne: x } }] }`.
+
+### Breaking changes (破壞性變更: condition whitelist)
+
+Conditions that used to be accepted, or silently let through, are now rejected. There is no transition period.
+
+- Removed: every `mingo` operator other than the whitelist above (`$not`, `$nor`, `$regex`, `$options`, `$exists`, `$type`, `$mod`, `$elemMatch`, `$size`, `$all`, `$expr`, `$where`, `$bitsAllSet`, ...); `RegExp` values (`{ name: /x/i }`, `$in: [/x/]`); array-literal equality and nested-object equality (`{ tags: ['x', 'y'] }`, `{ o: { k: 1 } }`); dotted paths (`{ 'o.k': 1 }`). To filter on these, `select()` and filter in memory.
+- Now rejected, previously let through: a `find` that is not a condition object (`null`, `[]`, `'x'`, `123`, `true`, a function, `Date`, `Map`, `Set`, an object with only symbol keys, an object whose condition sits on its prototype). `select(find)` used to return every row and `delAll(find)` used to delete every row. A class instance with own keys was already refused by `mingo` (`query criteria must be an object`) and now gets the `invalid find` message too. Likewise `undefined` values (`{ age: undefined }` and `$eq: undefined` used to match rows where the field is null or missing; `$in: [undefined]` matched nothing; a hole in a sparse array was treated as a missing field), `NaN`, `Infinity`, function and `Symbol` values, `$nin: []`, `$and: []`, `$or: []`, `$and: [{}]`, `$or: [{}]`, `{ age: {} }`, field names outside the grammar, getters and non-enumerable keys, nesting deeper than 32 and `$in` beyond 10000 items.
+- The error message is `invalid find: <reason> at [<path>]`; a `find` that threw an error of `mingo` before now gets this message instead.
+
 ## Documentation
 To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-orm-lmdb/WOrm.html).
 
@@ -196,7 +221,7 @@ async function test() {
     spc = _.sortBy(spc, 'name')
     console.log('select by $or, $and, $ne, $in, $nin', spc)
 
-    // //select by regex //mingo不支援regex
+    // //select by regex //系列條件白名單不支援$regex(含$options), 會整批reject(invalid find: unsupported operator), 須改為select後自行過濾
     // let sr = await wo.select({ name: { $regex: 'PeT', $options: '$i' } })
     // console.log('selectReg', sr)
 

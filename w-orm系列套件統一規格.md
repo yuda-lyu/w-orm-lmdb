@@ -82,6 +82,8 @@ option 對回傳形式之切換須為**靜態**：呼叫點寫死取值即知回
 
 主鍵值無效（未給、型別不符）之處置見各函數說明。
 
+**`find` 不適用本條。** 「輸入無效回空結果」僅指寫入類函數之 `data`；`select`、`delAll` 之 `find` 傳了值卻不是條件物件（`null`、陣列、字串、數值、布林、函數、`Date`、`RegExp`、`Map`、`Set`、類別實例等）時，**不得**視同未給或 `{}` 而回全部或刪全部，一律以整批性錯誤 `reject`，見 T11（2026-10-17 增訂；原各套件多將非條件物件之 `find` 視為無條件，`select` 回全表、`delAll` 刪光全表）。
+
 ### T6 主鍵補值與 `autoGenPk`
 
 主鍵由誰產生，由建構設定 **`opt.autoGenPk`** 決定，**預設為 `true`**。各套件皆須提供此設定，惟符合下述例外者得不提供。
@@ -238,6 +240,64 @@ data    輸入數據，無者為 null
 err     字串
 ```
 
+### T11 條件（find）之白名單
+
+適用於所有接受 `find` 之函數：`select`、`delAll`，以及套件專屬函數中以 `find` 為參數者（如 w-orm-mongodb 之 `delAllGfs`）。規則出處為主控維護之 `w-orm系列條件語法支援盤點.md`〈一之一〉〈一之三〉（使用者 2026-10-16、2026-10-17 裁示）；本條為對外行為規格，各套件逐項遵守。（2026-10-17 增訂；原各套件之 `find` 多為「原樣交給後端引擎」，白名單外之輸入被靜默放行、忽略或視為無條件。）
+
+**只支援白名單，白名單外一律整批 `reject`，不得靜默忽略、改變語意或擴大刪除範圍。** 系列最低要求（違反者才屬缺陷）：① 同一 `find` 於 `select` 命中之數據即 `delAll` 刪除之數據；② 不支援之運算子與無法轉譯之值必須 `reject`；③ 不得因條件清單恰為空或某值為 `undefined` 而刪全表。
+
+#### T11.1 白名單內
+
+| 項目 | 形狀 | 說明 |
+|---|---|---|
+| 頂層 | 未給、`undefined`、`{}`（含 null 原型之空物件） | 全部數據：`select` 回全部、`delAll` 刪除全部，不另行確認 |
+| 欄位等值 | `{ 欄: 純量 }` | 多欄隱含 AND |
+| 欄位運算子 | `$eq $ne $gt $gte $lt $lte`（值為純量）、`$in $nin`（值為純量陣列） | 同一欄可有多個運算子，為 AND |
+| 文件層邏輯 | `$and`、`$or`（值為條件物件之**非空**陣列） | 可巢狀，可與欄位條件並列（AND） |
+
+- **純量**：字串（不含 NUL 與孤立代理字元）、有限數字（含 `-0`）、布林、有效 `Date`。
+- **`null`**：僅可作為欄位直接等值、`$eq`、`$ne` 之值；`$gt $gte $lt $lte` 之值與 `$in`／`$nin` 之元素不收 `null`。需要「某值或 null」時以 `$or` 展開。
+- **空集合**：`$in: []` 允許（恆假：`select` 回 `[]`、`delAll` 刪 0 筆）；`$nin: []`、`$and: []`、`$or: []`、`$and`／`$or` 之元素為 `{}`、欄位運算子物件為 `{}` 一律 `reject`。
+- **欄名**：字串，長度 1–128，符合 `^[\p{L}_][\p{L}\p{M}\p{N}_]*$`，且不為 `__proto__`；點路徑（`'o.k'`）、`$` 開頭、連字號、空白、引號、`->`、`::` 等一律 `reject`。欄是否存在於 model／表屬各後端轉譯層：NoSQL 後端無此欄者無命中，SQL 後端得 `reject`。欄名同於 `Object.prototype` 成員（`constructor`、`toString`、`hasOwnProperty`、`valueOf` 等）者仍為合法欄名，數據無此自有欄位時須與一般不存在之欄位同為缺欄語意（MongoDB 式後端：`{ constructor: null }` 命中、`{ constructor: { $ne: null } }` 不命中），不得取到繼承之成員（2026-10-17 外審增訂；原 `mingo` 取到繼承之函數，使 `{ constructor: { $ne: null } }` 命中全部列而 `delAll` 刪光）。
+- **上限**（共用預設，後端得下調，不得上調）：邏輯巢狀深度 32、`$and`／`$or` 長度 1000、`$in`／`$nin` 長度 10000、節點總數 100000。使用 SQLite 之後端須將 `$and`／`$or` 長度下調為 999（SQLite 平鋪 `a OR b OR …` 恰 1000 項即回「Expression tree is too large」之資料庫錯誤）；w-orm-mdb 之 `$in`／`$nin` 長度下調為 2000（主鍵 `$in` 每元素約 1.6 ms）。
+
+#### T11.2 整批 `reject` 之範圍
+
+下列皆整批 `reject`，不執行、不刪除、不讀取：
+
+- 傳了值卻不是條件物件之頂層值：`null`、陣列（含 `[]` 與 `[{…}]`）、字串、數值、布林、函數、`Date`、`RegExp`、`Map`、`Set`、類別實例、`Promise`、`Error`、`Buffer`、包裝物件（`new String`、`new Number`）、`BigInt`、`Symbol`，及原型被改為 `null` 或 `Object.prototype` 之內建物件。
+- 白名單外之運算子：`$not $nor $regex $options $exists $type $mod $elemMatch $size $all $where $expr $function $text $comment $jsonSchema $like $ilike $null $notNull $equals $custom` 等；欄位層 `$and`／`$or`；文件層之欄位運算子（`{ $gt: 1 }`）；子查詢；sequelize `Op` 之 Symbol 鍵。
+- 白名單外之值：`undefined`、`NaN`、`±Infinity`、無效 `Date`、`BigInt`、`Buffer`、`RegExp`、函數、`Symbol`、包裝物件、陣列值或巢狀物件之等值（`{ tags: ['x'] }`、`{ o: { k: 1 } }`）、運算子與一般鍵混用。
+- 異常結構：Symbol 鍵、不可列舉鍵、存取器屬性、循環參照、稀疏陣列、陣列帶額外屬性、超過 T11.1 上限者；走訪中任何例外（含呼叫端 getter 或 `Proxy` trap 拋出者）一律轉為 `invalid find`，不外洩呼叫端之錯誤物件。
+
+#### T11.3 時序與錯誤
+
+- **入口順序**：已關閉判定（T4）→ `find` 檢核 → 任何讀取、連線、建立 client 或刪除。檢核失敗不得讀取資料庫，`delAll` 不得刪除任何數據；以壞條件呼叫已關閉之實例，`reject` 訊息為 closed 而非 `invalid find`。有序列化佇列之後端（w-orm-level、w-orm-lowdb）之檢核置於佇列之外，使錯誤不占用佇列、不等候先前排入之操作。
+- **整批性錯誤**：依 T10.3 於 `reject` **之前**發出一次 `error` 事件（內容與 `reject` 之訊息一致），不發出 `change`。
+- **訊息格式**：`invalid find: <原因> at [<路徑>]`，路徑含欄名與索引，**不回顯值**，例：`invalid find: unsupported operator [$not] at [find.age.$not]`、`invalid find: $nin with empty array is always true at [find.g.$nin]`、`invalid find: undefined is not allowed at [find.g]`。以 `Error` 物件 `reject`，後端不得包裝或改寫訊息。
+- **檢查之值即使用之值**：檢核每個值只讀一次，並回傳全新之 null 原型深複本；其後查詢、快取鍵、轉譯與刪除一律只用此複本，不再讀取呼叫端傳入之物件，亦不改動之。`select` 與 `delAll` 經同一檢核、同一規則。
+- 複本無自有鍵（未給、`undefined`、`{}`）者走「全部」分支。
+
+#### T11.4 白名單內之語意差異（設計，不硬改）
+
+| 面向 | 差異 |
+|---|---|
+| `$ne`／`$nin` 遇 NULL 或缺欄之列 | **MongoDB 式**（w-orm-lmdb、level、lowdb、mongodb）：`$ne: x`（x 非 null）與 `$nin` 含該列；**SQL 式**（w-orm-postgresql、reladb、mdb）：不含（三值邏輯）。`{ f: null }`、`$eq: null`、`$ne: null` 兩族一致（null＝無值；`$ne: null` 排除 null 與缺欄之列） |
+| 字串對數字欄（`{ age: '20' }`） | SQL 式依欄型轉換而命中；MongoDB 式不命中 |
+| `Date` | 原生 Date 之後端（w-orm-lmdb、mongodb、postgresql、reladb、mdb）直接比對；w-orm-level、lowdb 以 JSON 存值，由套件於轉譯層把複本內之 Date 轉為 `toISOString()` 之字串（與寫入一致），故 Date 條件可命中。**限制（level、lowdb，2026-10-17 外審實測）**：Date 條件等同其 ISO 字串條件，以字串字典序比較——與字串型欄位亦會比較（`{ d: { $lt: Date } }` 可能命中 `d` 為字典序較小之字串的列）；範圍比較僅在所有 Date 皆介於西元 0000–9999 年時正確（範圍外 `toISOString()` 輸出 `+yyyyyy-`／`-yyyyyy-` 前綴，字典序顛倒，如 `new Date(8.64e15)` 哨兵會被 `$lt` 命中）。是否於轉譯層對範圍外之 Date 條件 fail-closed 待主控裁示 |
+| 大小寫 | 僅 w-orm-mdb（Jet）之字串等值不分大小寫 |
+| 陣列欄位 | 白名單不含陣列字面值之等值（`{ tags: ['x'] }`）與 `$elemMatch`、`$all`、`$size`；欄位值為陣列時，純量與 `$in` 條件在 MongoDB 式後端仍以元素比對（`{ tags: 'x' }` 命中 `tags: ['x', 'y']`）；SQL 後端本即無陣列欄 |
+
+可攜寫法（7 後端實測結果一致）：排除 NULL 與缺欄 `{ $and: [{ f: { $ne: null } }, { f: { $ne: x } }] }`，含 NULL 與缺欄 `{ $or: [{ f: null }, { f: { $ne: x } }] }`。
+
+#### T11.5 實作與驗證
+
+- **單一擁有者**：形狀檢核為 wsemi（1.9.19 起）之 `cvOrmFind`（`import cvOrmFind from 'wsemi/src/cvOrmFind.mjs'`，`cvOrmFind(find, opt)` 同步回傳複本，不合者拋 `invalid find`；`opt` 只可下調上限，不提供放寬運算子或欄名之開關）。各後端轉譯仍各自（欄位型別、欄是否存在、主鍵正規化、`Date` 範圍、NULL 三值等），**不得**於後端自行放寬白名單，亦不得把後端專屬限制搬回共用函數。
+- **契約案例表**：wsemi 隨函數發布 `wsemi/src/_cvOrmFindCases.mjs`（`{ columns, seed, cases }`，純資料；`seed()` 為 6 列種子 a1～a6，每案 `{ id, group, rule, label, find(), expect: 'ALL' | 'OK' | 'REJ', ids: { mongo, sql, mdb? }, why, schema, need }`）。
+- **各套件測試**（建議檔名 `unit-find-whitelist.test.mjs`）逐案對公開 `select`／`delAll` 執行，每案前以 `seed()` 重建：`ALL`／`OK` 案 `select` 命中集合等於該族之 `ids`，`delAll` 刪除之集合等於 `select` 命中之集合且 `n` 與 `nDeleted` 為實際刪除筆數；`REJ` 案兩函數皆 `reject`、訊息以 `invalid find: ` 開頭、資料不變、`error` 事件於 `reject` 前恰一次且訊息相同、不發 `change`；`schema` 旗標案 SQL 族得 `reject` 或回 `ids.sql`，NoSQL 族須回 `ids.mongo`；`need.maxIn` 大於該後端 `$in` 上限者應 `reject`。另須涵蓋：以會翻轉讀值之 `Proxy` 驗證「檢查之值即使用之值」、已關閉先於檢核、檢核先於讀取（以無法讀取之資料驗證）、`useCache` 已填入時壞條件仍 `reject`、呼叫端條件不被改動；有序列化佇列者驗證檢核置於佇列之外；依各後端之轉譯層再加專屬斷言。
+- **已知缺口**（2026-10-17 三位外審之實測，屬共用檢核本身，歸 wsemi 處置，非各後端接線問題）：① `cvOrmFind` 對「原型被改為 null 或 `Object.prototype` 之內建物件（`Map`、`Set` 等）」僅在頂層且無自有鍵時拒收；帶自有可列舉鍵者、置於 `$or`／`$and` 內者，以及被 `Proxy` 包住者（被當成空條件，`delAll` 刪光全表）仍被接受，與 T11.2 不符；② 存取器、不可列舉描述子或描述子 trap 出錯時，錯誤路徑缺該欄名（`at [find]` 而非 `at [find.g]`）。案例表須補對應案例（內建品牌 × 空／非空自有鍵 × 頂層／邏輯子文件，及 `constructor` 等原型成員欄名交叉 null 語意）。
+- 白名單之收緊屬**破壞性變更**：不設過渡期（fail-closed），各套件 README 須有「條件（find）白名單」與「破壞性變更」兩節；`delAll` 之 JSDoc 須載明使用須知（不給條件即刪除全部、傳非條件物件會 `reject`、條件僅支援白名單且白名單外會 `reject`、與 `select` 共用同一檢核、`undefined` 與空 `$nin` 會 `reject`、語意差異與可攜寫法、須審慎使用非必要不用）。
+
 ---
 
 ## 各函數規格
@@ -247,7 +307,8 @@ err     字串
 依查詢條件取回多筆數據。
 
 - 恆回傳陣列。無符合數據回 `[]`，不得回 `null` 或 `undefined`。
-- `find` 未給或為空物件時回傳全部數據。
+- `find` 未給、`undefined` 或為空物件時回傳全部數據。
+- `find` 僅支援系列白名單（T11）：傳了值卻不是條件物件，或含白名單外之運算子與值，整批 `reject`（訊息 `invalid find: <原因> at [<路徑>]`），不視為 `{}`，不回傳全部（2026-10-17 增訂）。與 `delAll` 共用同一檢核與同一條件，`select(find)` 命中之數據即 `delAll(find)` 刪除之數據。
 - 陣列元素為數據物件，**不得含資料庫內部欄位**（如 MongoDB 之 `_id`、SQL 之自增序號），呼叫端看到的欄位須與寫入時給的一致。
 - 錯誤時 `reject`。
 
@@ -404,9 +465,18 @@ err     字串
 | `nDeleted` | 實際刪除筆數，恆等於 `n` |
 | `ok` | `1` |
 
-- `find` 未給或為空物件時刪除全部數據。
+- `find` 未給、`undefined` 或為空物件時刪除全部數據。
 - 條件無命中時回 `{ n: 0, nDeleted: 0, ok: 1 }`，不視為錯誤。
 - `n` **不得**取全表筆數。
+
+**使用須知**（2026-10-17 增訂；各套件之 `delAll` JSDoc 須載明，經資料通道呼叫者語意一致、不另加通道專屬限制）：
+
+1. `delAll` 為破壞性操作，須審慎使用、非必要不用；刪除單筆請用 `del`。**不給條件即刪除全部**，不另行確認；給了條件才是部分刪除。
+2. 傳了值卻不是條件物件（`null`、陣列含 `[]` 與 `[{…}]`、字串、數值、布林、函數、`Date`、`RegExp`、`Map`、`Set`、類別實例等）一律整批 `reject`，不視為 `{}`，不刪除任何數據（T11）。
+3. 條件僅支援系列白名單（T11.1）；白名單外之運算子、欄位層 `$and`／`$or`、子查詢、函數值、Symbol 鍵、`undefined` 值、空的 `$nin`／`$and`／`$or` 等一律整批 `reject`，訊息為 `invalid find: <原因> at [<路徑>]`，且不刪除任何數據。
+4. 與 `select` 共用同一檢核與同一條件，建議先以 `select(find)` 確認命中範圍再刪除（`useCache` 開啟且他方已寫入時，`select` 可能回傳快取，而 `delAll` 一律直讀資料庫）。
+5. 條件值若來自可能為 `undefined`、`null` 或空陣列之變數，呼叫端須先自行判斷：`undefined` 值會 `reject` 而非被忽略，空的 `$nin` 會 `reject`，`$in: []` 則為恆假（刪除 0 筆）。
+6. `$ne`（比較值非 null 時）／`$nin` 遇 NULL 或缺欄之語意依後端分族（T11.4），`$ne: null` 排除 null 與缺欄之列；並提供可攜寫法。
 
 ---
 
@@ -465,6 +535,8 @@ delAll(find)        → { n, nDeleted, ok }
 13. `insertBulk` 語義為「衝突即整批 reject 且不寫入任何一筆」而非 `insert` 之加速版，未以別名或轉呼叫實作；寫入於該後端會被拆為多次送出者已以交易包覆並驗證回滾，無交易可用而採補償動作者已載明其限制；實作方式與是否具效能優勢已於「各套件符合狀態」載明。
 14. 測試須涵蓋：同批重複主鍵、主鍵不存在、合併後內容相同、只給部份欄位且值相同、`autoInsert` 兩種取值、`autoGenPk` 兩種取值（含 `false` 且未帶主鍵須 `reject`）、單筆失敗、未帶有效主鍵、`delAll` 帶條件且僅部份命中，以及**同一操作於有註冊與未註冊 `error` 監聽兩種情況下回傳值完全相同**。提供 `insertBulk` 者另須涵蓋：無衝突時 `nInserted` 等於 `n`、撞既有主鍵時整批 `reject`、同批重複主鍵時整批 `reject`，以及**失敗後資料表無任何新增**。`insert` 之 `returnList` 另須涵蓋：兩種取值下之形狀、開啟時與輸入等長保序且對位正確、同批重複主鍵僅首筆 `nInserted` 為 `1`、`filter` 計數等於聚合模式之 `nInserted`、輸入無效回 `[]`、逐筆元素鍵集合恰為 `{n, nInserted, ok}`。
 
+15. **條件白名單案例表通過**（T11，2026-10-17 增訂）：`select`、`delAll` 於已關閉判定之後、任何讀取之前呼叫 wsemi 之 `cvOrmFind` 並只使用其回傳之複本（有序列化佇列者置於佇列之外），白名單外一律整批 `reject`；測試逐案執行 wsemi 之契約案例表（T11.5）且全綠，修前紅之案數與審計矩陣相符；`delAll` 之 JSDoc 載明使用須知；README 有「條件（find）白名單」與「破壞性變更」兩節。
+
 ---
 
 ## 各套件符合狀態
@@ -517,6 +589,8 @@ T8 已完成：README 已宣告單一行程內保證成立、跨行程因 `lmdb-
 - 寫入前檢核使 `insert` 與 `insertBulk` 之耗時增加約 3–13%（2 萬筆，Windows 11，兩次各交錯 10 輪之中位數差：`insert` 3% 與 9%、`insertBulk` 5% 與 13%），鍵長判定使每次主鍵讀取增加約 0.3 µs。
 - 實測平台為 Windows 11；修正後之測試斷言皆為確定性。
 
+**條件（find）白名單（T11）：已套**（2026-10-17）。`select`、`delAll` 於已關閉判定之後、任何讀取之前，呼叫 wsemi `cvOrmFind`（自成一個 `try` 且置於主 `try` 之前；失敗依 T10.3 先發出 `error` 事件再 `reject`，訊息原樣，不被其後 `catch` 之 closed 改寫，亦不重設快取），其後 `select` 與 `delAll` 共用之逐筆判定 `mkMatch` 只用檢核回傳之複本，複本無自有鍵者走「全部」分支；不再以 `iseobj(find)` 判斷分支。欄名同於 `Object.prototype` 成員者（`constructor` 等）以 null 原型淺複本判定，令其與不存在之欄位同為缺欄語意。`useCache` 已填入時壞條件仍 `reject`，`delAll` 壞條件不讀取、不刪除。測試 `test/unit-find-whitelist.test.mjs` 逐案執行案例表 241 案（另含訊息逐字等於共用檢核所給者、檢查之值即使用之值（頂層、`$or` 內、運算子物件內、熱快取、空條件判斷）、原型成員欄名之缺欄語意、Date 各位置、已關閉／關閉進行中／檢核途中關閉、檢核先於讀取、`useCache`、`delAll` 壞條件 `reject` 後立即 `close()` 不崩潰，共 286 案）。修正前之實測症狀（對 HEAD，案例表 239 案，未對修前版執行 H19、H20（預期使修前版長時間占用））：判定為「該拒收而接受」或「命中集合不符」者 121 案（最終測試對 HEAD 之 mocha 層紅 186 案），其中非條件物件之頂層值（`null`、`[]`、`'x'`、`123`、`true`、函數、`Date`、`Map`、`Set`、僅 Symbol 鍵、條件在原型上）使 `select` 回全表、`delAll` 刪光全表。
+
 ### w-orm-mongodb
 
 主鍵欄位為 `id`，為無業務語義之識別碼。主鍵欄位目前**固定為 `id`，尚未支援由呼叫端指定**，已於類別註解、`selectByPk` 註解與 README 載明。
@@ -558,6 +632,8 @@ GridFS 之寫入係先寫 chunks 再寫 files 文件，故違反唯一索引時 
 兩條路徑皆已測試：standalone 之補償路徑見 `test/api-basic.test.mjs` 之 `insertBulk`，交易路徑見 `test/api-insertbulk-rs.test.mjs`。後者另起 `--replSet rs0` 之容器，並先斷言 `hello.setName` 存在以證明確走交易路徑，涵蓋撞既有主鍵、同批重複主鍵、200 筆批次末筆衝突之回滾，皆斷言失敗後筆數增量為 0 且既有數據未被改動。該容器不開啟認證，因 `--replSet` 配合 root 帳號須另備 keyFile 以供成員間內部認證，於測試無必要；連線採 `directConnection=true`，因容器內之成員位址為 `127.0.0.1:27017`，由宿主機依該位址無法連線，不可令驅動走成員探索。
 
 **GridFS 不提供 `insertBulkGfs`**：依 §7 專屬函數不在本規格範圍內，§9 亦僅要求「若與六函數概念對應則參數形狀比照」而未要求補齊所有概念。GridFS 每筆寫入為 chunks 與 files 兩階段，全有全無所須清理之對象較一般資料表複雜，且無對應之使用場景。
+
+**條件（find）白名單（T11）：待套**（2026-10-17）。`select`、`delAll`、`delAllGfs`（含 `_findGfs`）於建立 `MongoClient` 之前呼叫 `cvOrmFind`，`collection.find`、`deleteMany`、`bucket.find` 只用複本。審計現況：driver 自身拒絕 `null`、陣列、字串等頂層值，但 `Map`、`Set`、類別實例、僅 Symbol 鍵、原型帶條件者通過；函數值與 Symbol 值被 BSON 序列化略過而使條件消失、`undefined` 值被當 `null`，`delAll` 可刪光全表（17 個形狀）；`$where`（字串）等伺服器端運算子全開放。
 
 ### w-orm-postgresql
 
@@ -602,6 +678,8 @@ PostgreSQL 之協定以 int16 記綁定參數個數，上限為 65535，故單�
 映回時之比對**依主鍵欄位之實際型別分流**：PostgreSQL 所回傳之型別未必與輸入相同，主鍵為 `TIMESTAMPTZ` 時輸入為字串而回傳為 `Date` 物件，直接比對必然落空而使每一筆皆誤判為跳過，且該錯誤於僅驗聚合計數之測試下不會顯現。故先以 `rows[0][主鍵] instanceof Date` 判定欄位型別，再令兩側共用同一正規化函數。
 
 不採「一律嘗試解析為日期」之通用寫法：主鍵為文字欄位而值形如 `2025` 與 `2025-01-01` 者，將正規化為同一時刻而碰撞，令已存在者誤判為新插入。已就此加測——文字主鍵之資料表已存在 `2025` 時，送 `2025` 與 `2025-01-01` 得 `[0, 1]`。
+
+**條件（find）白名單（T11）：待套**（2026-10-17）。`cvFind` 第一步改接 `cvOrmFind`，形狀層（`readOwn`、`chkList` 等）移除，保留 pg 專屬第二階段（63 bytes 識別字、`$..$` 欄引用字串、`$nin` 表名改寫守門、`$eq`→`$equals` 轉譯、`Infinity` 欄名）；`$and`／`$or` 為真陣列，須自行轉回 mongo-sql 所需之索引物件。審計現況（無任何形狀使 `delAll` 刪光全表，為系列最嚴謹者）須移除：`$like $ilike $null $notNull $equals`、欄位層 `$not`、`$in`／`$nin` 含 null、`BigInt`／`Buffer` 值、JSON 取值鍵與 `::` 轉型鍵；須補：`$eq`、首尾 `$` 之字串值；布林 `$ne` 改為不含 NULL 之 SQL 三值。
 
 ### w-orm-reladb
 
@@ -663,6 +741,8 @@ T10 之實作：`EventEmitter` 採 `wsemi` 之 `evem()`（即 `eventemitter3`）
 
 修正前之實測症狀（close 後再以該實例操作）：`select`、`selectByPk`、`insert`、`insertBulk`、`delAll` 已為 `reject` 且皆於 20ms 內完成而無空轉問題；惟 **`save` 與 `del` 將整批性錯誤降級為逐筆 `ok: 0` 而整批 `resolve`**——呼叫端若只看 Promise 是否 `reject` 即誤判整批成功，縱使逐筆檢查亦僅見「這幾筆失敗」而不知實例已死、後續每一筆皆不可能成功。修正後七函數於 close 後一律整批 `reject`，訊息明示 closed，並依 T10.3 發出 `error` 事件，已以測試斷言。
 
+**條件（find）白名單（T11）：待套**（2026-10-17）。`cvFind` 第一步改接 `cvOrmFind`（`maxList: 999`），其後 `cvDoc`／`cvField` 走訪複本，保留欄位型別、主鍵正規化、`DATE` 範圍、嚴格鍵、`dateNoTz`；兩方言（sqlite、mssql）皆跑案例表。審計現況須處置：頂層非物件（`null`、陣列、字串、數值、布林、函數、`BigInt`、`Symbol`）原視為 `{}` 而 `delAll` 刪光全表（`select(null, connState)` 之呼叫端須改 `{}` 或 `undefined`）；`$not $nor $regex $options $exists`、`RegExp` 值、陣列值即 `$in` 之語法糖、sequelize `Op` Symbol 運算子、`$in`／`$nin` 含 null 與空 `$nin`、`$and: [{}]`、`$or: [{}]` 等須改為 `reject`。
+
 ### w-orm-mdb
 
 主鍵欄位由建構時之 `opt.pk` 指定，預設為 `id`，**已支援由呼叫端指定**，`select` 以外之六函數皆以該欄位認定主鍵，已於類別註解與 `selectByPk` 註解載明。本套件經自帶之 `connMDB.exe`（C# 源碼於 `srcCs/MdbBridge.cs`，以 Windows 內建 csc 編譯）操作 Windows 內建之 Jet 4.0 引擎，僅支援 `.mdb`（Jet4）不支援 `.accdb`。資料不經主控台管線：輸入寫暫存 JSON 檔，查詢結果由 exe 逐列串流寫 jsonl 檔。
@@ -718,6 +798,8 @@ T10 之實作：`EventEmitter` 採 `wsemi` 之 `evem()`（即 `eventemitter3`）
 
 兩者皆為單次 exe 往返，差距來自交易內之寫入得由 Jet 緩衝後一次提交，而 `insert` 之各語句為自動提交。差距不大，提供本函數主要係為語義（全有全無）與跨套件之可替換性。
 
+**條件（find）白名單（T11）：待套**（2026-10-17；須待 w-orm-reladb 新版發布，並將其 `package.json` 之 w-orm-reladb 範圍抬到新版）。`normFind` 改呼叫 `cvOrmFind`（`maxIn: 2000`、`maxList: 999`），刪 `snapFind`；`castPkFind` 只留 `$eq $ne $gt $gte $lt $lte $in $nin` 與等值；文件層 `$not`（保留功能）、主鍵欄之 `$not`／`$regex`／`Op`、頂層非物件與陣列視為 `{}`、`delAll({ id: undefined })` 與 `select({ id: 123n })` 之無命中，皆改為 `reject`。案例表之 `ids.mdb` 覆寫（N08、E25）與 `need`（H07、H28 對 mdb 應 `reject`）須套用；僅 Windows 執行。
+
 ### w-orm-lowdb
 
 主鍵欄位為 `id`，為無業務語義之識別碼。主鍵欄位目前**固定為 `id`，尚未支援由呼叫端指定**，已於類別註解與 `selectByPk` 註解載明。
@@ -756,6 +838,8 @@ T8 已完成：README 已宣告兩範圍之適用情形。**單一行程內併�
 
 **修正之既有缺陷**（皆已由測試斷言）：（一）`insert` 之同批重複主鍵原會全數寫入而使資料表出現重複主鍵，因其對照表僅由既有數據建立而未隨插入更新；（二）`delAll` 之 `n` 原取全表筆數而非實際刪除筆數，違反 T3；（三）`save` 之「內容相同」原以「待寫入物件與現值全等」判定，只給部份欄位且值皆相同者會被誤報 `nModified: 1` 並實際寫檔；（四）`save` 之回傳原依路徑而異（更新路徑無 `nInserted`、插入路徑無 `nModified`），違反 T2；（五）`del` 之主鍵未命中原回 `n: 1`、未帶有效主鍵原回 `n: 1` 且未附 `err`。
 
+**條件（find）白名單（T11）：已套**（2026-10-17）。`select`、`delAll` 於任何讀取之前、`serialize` 佇列之外呼叫 wsemi `cvOrmFind`（`procFind`，失敗依 T10.3 先發出 `error` 事件再 `reject`，不占用佇列），其後 select 與 delAll 共用之逐筆判定 `mkMatch` 只用檢核回傳之複本，複本無自有鍵者走「全部」分支（欄名同於 `Object.prototype` 成員者以 null 原型淺複本判定）；複本內之 `Date` 於轉譯層（`isoFind`）就地轉為 `toISOString()` 之字串（本套件以 JSON 存檔，Date 存入後即為該字串），使 Date 條件可命中（修正前恆不命中）。本套件無 `close()`，T11.3 之「已關閉先於檢核」不適用。測試 `test/unit-find-whitelist.test.mjs` 逐案執行案例表 241 案（另含訊息逐字等於共用檢核所給者、檢查之值即使用之值（頂層、`$or` 內、運算子物件內、熱快取、空條件判斷）、原型成員欄名之缺欄語意、Date 於各運算子與邏輯位置、檢核置於佇列之外且先於讀取（以無法解析之資料庫檔驗證）、壞條件 `delAll` 不改寫資料庫檔、`useCache`，共 284 案）。修正前之實測症狀（對 HEAD，案例表 239 案，未對修前版執行 H19、H20（預期使修前版長時間占用））：判定為「該拒收而接受」或「命中集合不符」者 124 案（含 Date 條件 3 案；最終測試對 HEAD 之 mocha 層紅 200 案），非條件物件之頂層值使 `select` 回全表、`delAll` 刪光全表。
+
 ### w-orm-level
 
 主鍵欄位為 `id`，為無業務語義之識別碼。主鍵欄位目前**固定為 `id`，尚未支援由呼叫端指定**，已於類別註解與 `selectByPk` 註解載明。
@@ -789,3 +873,5 @@ T8 已完成：README 已宣告兩範圍之適用情形。**單一行程內併�
 **`save` 之逐筆失敗路徑（`ok: 0`）於本套件不可達**：逐筆處理皆為記憶體內之比對與合併而不拋錯，批次取值與批次寫入之失敗影響全部筆數而屬 T4 之整批性錯誤，依規格以 `reject` 回報而不降為逐筆。該路徑仍依規格保留於實作內。`del` 之逐筆 `ok: 0` 則確實可達（未帶有效主鍵），「單筆失敗不中斷整批」已由該情形測試涵蓋。
 
 **修正之既有缺陷**（皆已由測試斷言）：（一）缺 `selectByPk`、`insertBulk`、`close` 三個函數；（二）完全未發出 `error` 事件；（三）無 `autoGenPk`；（四）`insert` 與 `save` 為「先讀出、再依讀到的結果決定寫入」而違反 T7；（五）`delAll` 之 `n` 原取全表筆數而非實際刪除筆數，違反 T3；（六）`save` 之「內容相同」原以「待寫入物件與現值全等」判定，只給部份欄位且值皆相同者會被誤報 `nModified: 1` 並實際寫入；（七）`save` 之回傳原依路徑而異（更新路徑無 `nInserted`、自動插入路徑轉呼叫 `insert` 而無 `nModified`），違反 T2，且命中而內容相同者原回 `n: 0`；（八）`del` 之主鍵未命中原回 `n: 1`、未帶有效主鍵原回 `n: 1` 且未附 `err`；（九）close 或開啟失敗後之空轉約 200 秒與 `del` 之靜默 fail-open（見上方 T4 條）。
+
+**條件（find）白名單（T11）：已套**（2026-10-17）。`select`、`delAll` 於已關閉判定之後、任何讀取之前、`serialize` 佇列之外呼叫 wsemi `cvOrmFind`（`procFind`，失敗依 T10.3 先發出 `error` 事件再 `reject`，不占用佇列；以壞條件呼叫已關閉之實例，`reject` 訊息為 closed），其後 select 與 delAll 共用之逐筆判定 `mkMatch` 只用檢核回傳之複本，複本無自有鍵者走「全部」分支（欄名同於 `Object.prototype` 成員者以 null 原型淺複本判定）；複本內之 `Date` 於轉譯層（`isoFind`）就地轉為 `toISOString()` 之字串（本套件以 JSON 存值，Date 存入後即為該字串），使 Date 條件可命中（修正前恆不命中）。測試 `test/unit-find-whitelist.test.mjs` 逐案執行案例表 241 案（另含訊息逐字等於共用檢核所給者、檢查之值即使用之值（頂層、`$or` 內、運算子物件內、熱快取、空條件判斷）、原型成員欄名之缺欄語意、Date 於各運算子與邏輯位置、已關閉／關閉進行中／檢核途中關閉、檢核先於讀取（以無法解碼之紀錄驗證）、檢核置於佇列之外（壞條件於先前排入之 `insertBulk` 完成前即 `reject`）、`useCache`，共 286 案）。修正前之實測症狀（對 HEAD，案例表 239 案，未對修前版執行 H19、H20（預期使修前版長時間占用））：判定為「該拒收而接受」或「命中集合不符」者 124 案（含 Date 條件 3 案；最終測試對 HEAD 之 mocha 層紅 200 案），非條件物件之頂層值使 `select` 回全表、`delAll` 刪光全表。

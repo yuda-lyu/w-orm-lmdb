@@ -17,6 +17,7 @@ import isbol from 'wsemi/src/isbol.mjs'
 import evem from 'wsemi/src/evem.mjs'
 import genIDSeq from 'wsemi/src/genIDSeq.mjs'
 import pmSeries from 'wsemi/src/pmSeries.mjs'
+import cvOrmFind from 'wsemi/src/cvOrmFind.mjs'
 
 
 /**
@@ -131,6 +132,35 @@ function WOrmLmdb(opt = {}) {
         }
 
         return ltdt
+    }
+
+    //hasProtoName, 檢核後複本之欄名是否同於Object.prototype之成員(constructor、toString、valueOf、hasOwnProperty等):
+    //此類欄名屬白名單內之合法欄名, 但mingo以屬性存取取值, 數據無此自有欄位時會取到繼承之成員(函數)而非缺欄,
+    //使{constructor:null}無命中、{constructor:{$ne:null}}命中全部(delAll因而刪光); 欄名只會出現於複本之鍵(含$and/$or內之子條件)
+    let hasProtoName = (fc) => {
+        for (let k of Object.keys(fc)) {
+            if (k === '$and' || k === '$or') {
+                for (let sub of fc[k]) {
+                    if (hasProtoName(sub)) {
+                        return true
+                    }
+                }
+            }
+            else if (k in Object.prototype) {
+                return true
+            }
+        }
+        return false
+    }
+
+    //mkMatch, 依檢核後複本建立逐筆命中判定, select與delAll共用同一判定(系列最低要求①: select命中之數據即delAll刪除之數據);
+    //欄名同於Object.prototype成員者, 改以null原型之淺複本(只含自有可列舉欄位)判定, 令其與一般不存在之欄位同為缺欄語意, 命中者仍回傳原數據
+    let mkMatch = (fc) => {
+        let q = new mingo.Query(fc)
+        if (!hasProtoName(fc)) {
+            return (v) => q.test(v)
+        }
+        return (v) => q.test(isobj(v) ? Object.assign(Object.create(null), v) : v)
     }
 
     //getData, 供select使用, 依useCache使用快取, mode為呼叫之操作別
@@ -300,8 +330,10 @@ function WOrmLmdb(opt = {}) {
     /**
      * 查詢數據
      *
+     * 條件find僅支援系列白名單(規則同delAll之第1-3點，見delAll)，與delAll共用同一檢核，select(find)命中之數據即delAll(find)刪除之數據
+     *
      * @memberOf WOrmLmdb
-     * @param {Object} [find={}] 輸入查詢條件物件
+     * @param {Object} [find={}] 輸入查詢條件物件(系列白名單，規則同delAll之第1-3點); 未給、undefined或{}回傳全部數據; 非條件物件或白名單外運算子整批reject
      * @returns {Promise} 回傳Promise，resolve回傳數據，reject回傳錯誤訊息
      */
     async function select(find = {}) {
@@ -310,6 +342,18 @@ function WOrmLmdb(opt = {}) {
         if (isClosed()) {
             return procClosed('select', null)
         }
+
+        //fc, 條件之入口檢核(R-FIND-01): 入口順序為closed→find檢核→讀取, 不合者依T10.3先發出error事件再reject(訊息原樣, 不經下方讀取階段之錯誤處理),
+        //其後一律只用檢核所回傳之全新複本(null原型, 與呼叫端之find脫勾), 不再讀取呼叫端之find
+        let fc = null
+        try {
+            fc = cvOrmFind(find)
+        }
+        catch (err) {
+            emitError('select', null, err)
+            return Promise.reject(err)
+        }
+
         let isErr = false
         let res = null
 
@@ -319,15 +363,11 @@ function WOrmLmdb(opt = {}) {
             let ltdt = await getData('select')
             // console.log('select ltdt',ltdt)
 
-            //filter
-            if (iseobj(find)) {
+            //filter, 複本無自有鍵(未給、undefined、{})為全部
+            if (Reflect.ownKeys(fc).length > 0) {
 
-                //q
-                let q = new mingo.Query(find)
-                // console.log('q', q)
-
-                //find
-                res = q.find(ltdt).all()
+                //find, 與delAll共用同一逐筆判定
+                res = ltdt.filter(mkMatch(fc))
                 // console.log('select(find) ltdt',res)
 
             }
@@ -338,7 +378,7 @@ function WOrmLmdb(opt = {}) {
             //check
             if (!isarr(res)) {
                 isErr = true
-                res = `can not select by find[${JSON.stringify(find)}]`
+                res = `can not select by find[${JSON.stringify(fc)}]`
             }
 
         }
@@ -1044,11 +1084,32 @@ function WOrmLmdb(opt = {}) {
     }
 
     /**
-     * 刪除全部數據，需與del分開，避免未傳數據導致直接刪除全表
+     * 依條件刪除多筆數據(破壞性操作，須審慎使用，非必要不用；刪除單筆請用del)
+     *
+     * 使用須知:
+     * 1. 不給條件即刪除全部數據: find未給、為undefined或為{}時，刪除資料表內全部數據，不另行確認。
+     *    給了條件才是部分刪除。
+     * 2. 傳了值卻不是條件物件(null、陣列含[]與[{...}]、字串、數值、布林、函數、Date、RegExp、Map、Set、類別實例等)
+     *    一律整批reject，不視為{}，不刪除任何數據。
+     * 3. 條件僅支援系列白名單: 欄位等值{欄:純量}(多欄為AND)、欄位運算子$eq $ne $gt $gte $lt $lte(值為純量)與
+     *    $in $nin(值為純量陣列)、文件層$and $or(值為條件物件之非空陣列)。純量為字串(不含NUL字元與孤立代理字元)、有限數字、布林、有效Date；
+     *    null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $regex $options $exists $where $expr $like $ilike等)、
+     *    欄位層$and/$or、子查詢、函數值、Symbol鍵、undefined值、空的$nin/$and/$or等一律整批reject，
+     *    訊息為invalid find: 原因 at [路徑]，且不刪除任何數據。
+     * 4. 與select共用同一檢核與同一條件，select(find)命中之數據即本函數刪除之數據；
+     *    建議先以select(find)確認命中範圍再刪除(useCache開啟且他方已寫入時，select可能回傳快取，而本函數一律直讀資料庫)。
+     * 5. 條件值若來自可能為undefined、null或空陣列之變數，呼叫端須先自行判斷；undefined值會reject而非被忽略，
+     *    空的$nin會reject，$in:[]則為恆假(刪除0筆)。
+     * 6. 語意差異(依後端，見README): MongoDB式: $ne(比較值非null時)與$nin會命中欄位為null或缺欄之數據，$ne:null則排除之；
+     *    欄名同於Object.prototype成員(constructor、toString等)者，數據無此自有欄位時視為缺欄。
+     *    需明確表達時可用可攜寫法: 排除NULL為{$and:[{f:{$ne:null}},{f:{$ne:x}}]}，含NULL為{$or:[{f:null},{f:{$ne:x}}]}。
+     *
+     * n與nDeleted皆為實際刪除筆數，不取全表筆數。條件無命中時回{n:0,nDeleted:0,ok:1}，不視為錯誤。
+     * 處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾，呼叫端須重新讀取確認；刪除依資料庫之實際鍵。
      *
      * @memberOf WOrmLmdb
-     * @param {Object} [find={}] 輸入刪除條件物件
-     * @returns {Promise} 回傳Promise，resolve回傳刪除結果物件{n,nDeleted,ok}，n與nDeleted同為實際刪除筆數，reject回傳錯誤訊息；刪除依資料庫之實際鍵；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾，呼叫端須重新讀取確認
+     * @param {Object} [find={}] 輸入刪除條件物件，不給予find則代表刪除全部數據
+     * @returns {Promise} 回傳Promise，resolve回傳刪除結果物件{n,nDeleted,ok}，reject回傳錯誤訊息
      */
     async function delAll(find = {}) {
 
@@ -1056,6 +1117,19 @@ function WOrmLmdb(opt = {}) {
         if (isClosed()) {
             return procClosed('delAll', null)
         }
+
+        //fc, 條件之入口檢核(R-FIND-01): 入口順序為closed→find檢核→讀取, 不合者依T10.3先發出error事件再reject而不讀取、不刪除、不重設快取,
+        //訊息原樣(不經下方刪除階段之catch: 該處遇實例已關閉會改寫為closed訊息, 不得套用於檢核之錯誤);
+        //其後一律只用檢核所回傳之全新複本(null原型, 與呼叫端之find脫勾), 與select所用者同一規則
+        let fc = null
+        try {
+            fc = cvOrmFind(find)
+        }
+        catch (err) {
+            emitError('delAll', null, err)
+            return Promise.reject(err)
+        }
+
         let isErr = false
 
         //res
@@ -1066,13 +1140,13 @@ function WOrmLmdb(opt = {}) {
             //刪除依資料庫之實際鍵而非數據之id欄位: 數據不帶有效id者(如他方寫入)以id刪除會拋錯, 致整表無從刪除
             let ltkv = readAll('delAll', true)
 
-            //kps, 須刪除之鍵, 有條件者逐筆以同一查詢條件判定是否命中
+            //kps, 須刪除之鍵, 有條件者逐筆以同一查詢條件判定是否命中, 複本無自有鍵(未給、undefined、{})為全部
             //判定逐筆進行而不另建主鍵對照, 故無以一般物件加in判斷時之原型鏈誤判(主鍵為constructor、toString等)
             let kps = []
-            if (iseobj(find)) {
-                let q = new mingo.Query(find)
+            if (Reflect.ownKeys(fc).length > 0) {
+                let match = mkMatch(fc)
                 for (let kv of ltkv) {
-                    if (q.test(kv.value)) {
+                    if (match(kv.value)) {
                         kps.push(kv.key)
                     }
                 }
