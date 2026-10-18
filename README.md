@@ -59,6 +59,22 @@ A primary key (`id`) may take at most 1978 bytes once encoded as an LMDB key: it
 
 `save` handles a row whose key is too long, or whose value cannot be serialized, as a failure of that row only: that row gets `ok: 0` with `err`, and the other rows are saved. `selectByPk`, `del` and the lookups inside `save` treat a key that is too long as not found, because such a key cannot exist.
 
+### `save` merges by default; `save(data, { merge: false })` overwrites the whole record
+
+By default `save` deep-merges each row into the existing record with the same `id`: fields that the row does not give are kept, array fields are merged element by element, and there is no way to remove a field. To replace a record as a whole, pass `merge: false`:
+
+```alias
+await wo.save({ id: 'u1', name: 'peter' }, { merge: false })
+```
+
+- The record that ends up stored is exactly the row you passed, as encoded by LMDB (the fidelity is the same as for `insert` and the default `save`: for example a `Set` reads back as an array, and the own keys `__proto__` and `__proto_` collapse into one). Keys of the old record that the row does not have are gone, array fields are replaced as a whole, and nested objects are not merged.
+- The overwrite is a single `put` inside the same LMDB write transaction that `save` already uses; there is no delete step. There is therefore no window in which the record is missing, a concurrent reader sees either the old or the new whole record, and if the write fails (for example the value cannot be serialized) the transaction is aborted and the old record is still there. Do not emulate this with `del` followed by `insert`: that is two writes, and a failure or a concurrent `insert` in between loses or replaces data.
+- `merge` takes effect only when it is exactly `false`. Omitted, `true` or any other value keeps the default deep merge, because an overwrite discards data.
+- `autoInsert` works the same way: when the id does not exist, `autoInsert: true` (default) inserts the row, `autoInsert: false` writes nothing and the result is `{ n: 0, nInserted: 0, nModified: 0, ok: 1 }`. `autoInsert` has no effect on a record that already exists.
+- Result shape, ordering, per-row failure (`ok: 0` with `err`, without rejecting), batch-level errors and events (`insert` for an inserted row, then one `change` with mode `save`, `error` per failed row) are the same as the default `save`.
+- "Unchanged" is judged against the row itself: if the row equals the existing record, nothing is written and `nModified` is `0`. A row that is a subset of the existing record is a change (it removes keys) and `nModified` is `1`.
+- `merge` is an option of `w-orm-lmdb`; the other `w-orm-*` backends do not provide it.
+
 ### Condition (`find`) whitelist (條件(find)白名單)
 
 `select` and `delAll` take the same `find` condition and check it the same way, at the entry of the call: after the closed check and before anything is read or deleted. The check is `cvOrmFind` of `wsemi`, shared by the whole `w-orm-*` series, and the query and the deletion use only the checked copy, never the object the caller passed in. A condition outside the whitelist rejects the whole call with `invalid find: <reason> at [<path>]`, an `error` event is emitted once before the rejection, nothing is read or deleted and no `change` event is emitted.

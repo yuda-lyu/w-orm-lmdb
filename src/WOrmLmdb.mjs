@@ -696,10 +696,16 @@ function WOrmLmdb(opt = {}) {
     /**
      * 儲存數據
      *
+     * 預設以主鍵為準將輸入深層合併進既有數據(未給之欄位保留，陣列欄位依索引逐元素合併)，無法刪除欄位；
+     * option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內以輸入整筆取代既有數據，舊數據中不在輸入內之鍵不保留，陣列欄位整筆替換，
+     * 不經刪除故無[刪後插前]之空窗，寫入失敗(如數據無法序列化)時原數據仍在。merge為w-orm-lmdb之選項，系列其他後端未提供。
+     * 存入內容為輸入經LMDB編碼器往返後之結果，型別與欄名之保真範圍同insert與預設save(如Set讀回為陣列，自有欄名__proto__與__proto_會併為一鍵)
+     *
      * @memberOf WOrmLmdb
      * @param {Object|Array} data 輸入數據物件或陣列
      * @param {Object} [option={}] 輸入設定物件，預設為{}
-     * @param {boolean} [option.autoInsert=true] 輸入是否於儲存時發現原本無數據，則自動改以插入處理，預設為true
+     * @param {boolean} [option.autoInsert=true] 輸入是否於儲存時發現原本無數據，則自動改以插入處理，預設為true；merge為false時同樣適用，已有數據者不受影響
+     * @param {boolean} [option.merge=true] 輸入已有數據時是否將輸入深層合併進既有數據，預設為true；僅嚴格給false才改為整筆覆寫(存入者恰為該筆輸入之內容)，其餘值(含null、0、'false')一律視同true。覆寫時[內容相同不寫入]之基準為輸入與既有數據相同
      * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗者(如須插入而主鍵超過上述上限、數據無法序列化)ok為0並附err，reject回傳錯誤訊息；數據元素非物件等整批性錯誤於任何寫入之前reject；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已處理之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認
      */
     async function save(data, option = {}) {
@@ -718,6 +724,9 @@ function WOrmLmdb(opt = {}) {
         //autoInsert
         let autoInsert = get(option, 'autoInsert', true)
 
+        //isOverwrite, 是否整筆覆寫, 於下方try內判定
+        let isOverwrite = false
+
         //res
         let res = null
 
@@ -725,6 +734,11 @@ function WOrmLmdb(opt = {}) {
         let evs = []
 
         try {
+
+            //isOverwrite, option.merge嚴格等於false者為整筆覆寫, 其餘(未給、true與非布林值)維持深層合併;
+            //覆寫會丟棄舊記錄中不在新記錄內之鍵, 屬較具破壞性之一方, 故不採autoInsert之真假值判定;
+            //置於try內, 選項取值拋錯(如getter)同屬整批性錯誤而先發出error事件(T10.3), 且於任何寫入之前
+            isOverwrite = get(option, 'merge') === false
 
             //cloneDeep, 與外部數據脫勾; 置於try內, 無法複製之輸入同屬整批性錯誤而先發出error事件
             data = cloneDeep(data)
@@ -766,8 +780,10 @@ function WOrmLmdb(opt = {}) {
                         }
                         vp = undefined
                     }
-                    if (iseobj(vp) && isEqual(merge({}, vp, v), vp)) {
-                        //合併後與現值相同不須寫入, 惟已命中v.id故n為1
+                    //內容相同之判定基準隨merge而異: 合併為[合併後結果與現值相同], 覆寫為[待寫入物件與現值相同];
+                    //覆寫不可沿用合併之基準, 否則輸入為現值之子集(欲刪鍵)時會被誤判為無須寫入
+                    if (iseobj(vp) && (isOverwrite ? isEqual(vp, v) : isEqual(merge({}, vp, v), vp))) {
+                        //合併後(覆寫為待寫入物件)與現值相同不須寫入, 惟已命中v.id故n為1
                         return {
                             n: 1,
                             nInserted: 0,
@@ -796,16 +812,17 @@ function WOrmLmdb(opt = {}) {
                         if (existed) {
                             //已存在v.id
 
-                            //vm, 合併後之結果
-                            let vm = merge({}, vv, v)
+                            //vm, 寫入後之結果: 合併為合併後之結果; 覆寫為待寫入物件本身(舊記錄中不在其內之鍵不保留, 陣列欄位整筆替換),
+                            //覆寫由同一寫交易內之put直接取代, 不經刪除, 故無[刪後插前]之空窗, put失敗(如數據無法序列化)時交易中止而原記錄仍在
+                            let vm = isOverwrite ? v : merge({}, vv, v)
 
-                            //判定基準為[合併後結果與現值相同], 而非[待寫入物件與現值全等],
-                            //令nModified忠實反映資料庫端是否真的寫入, 僅給部份欄位且值皆相同者不應回報已修改
+                            //判定基準為[寫入後結果與現值相同], 而非[待寫入物件與現值全等],
+                            //令nModified忠實反映資料庫端是否真的寫入, 合併時僅給部份欄位且值皆相同者不應回報已修改
                             if (isEqual(vm, vv)) {
-                                //合併後與現值相同不須寫入
+                                //寫入後與現值相同不須寫入
                             }
                             else {
-                                //合併後與現值不同須更新
+                                //寫入後與現值不同須更新
 
                                 //put
                                 client.put(v.id, vm)
