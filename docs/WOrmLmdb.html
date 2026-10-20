@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmLmdb.html">WOrmLmdb</a><ul class='methods'><li data-type='method'><a href="WOrmLmdb.html#.del">del</a></li><li data-type='method'><a href="WOrmLmdb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmLmdb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmLmdb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmLmdb.html#.save">save</a></li><li data-type='method'><a href="WOrmLmdb.html#.select">select</a></li><li data-type='method'><a href="WOrmLmdb.html#.selectByPk">selectByPk</a></li></ul></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmLmdb.html">WOrmLmdb</a><ul class='methods'><li data-type='method'><a href="WOrmLmdb.html#.backup">backup</a></li><li data-type='method'><a href="WOrmLmdb.html#.del">del</a></li><li data-type='method'><a href="WOrmLmdb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmLmdb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmLmdb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmLmdb.html#.save">save</a></li><li data-type='method'><a href="WOrmLmdb.html#.select">select</a></li><li data-type='method'><a href="WOrmLmdb.html#.selectByPk">selectByPk</a></li></ul></li></ul>
     
 </nav>
 
@@ -84,7 +84,7 @@ data為本次操作之輸入數據，delAll固定為null。
 res為本次操作之回傳結果之複本，改寫之不影響回傳結果。
 逐筆函數以整批為單位發出一次而不逐筆發出，select與selectByPk不發出本事件。</p>
 <p>error事件，參數為(mode, data, err)，於操作發生錯誤時發出：
-mode為操作別字串，可為'select'、'selectByPk'、'insert'、'insertBulk'、'save'、'del'、'delAll'。
+mode為操作別字串，可為'select'、'selectByPk'、'insert'、'insertBulk'、'save'、'del'、'delAll'、'backup'。
 data為本次操作之輸入數據，無輸入數據者為null。
 err為錯誤訊息字串，內容與正規管道所送出者一致。
 整批性錯誤於reject之前發出；逐筆失敗於整批定案後依序發出，每筆一次，整批因整批性錯誤而reject者不發出。
@@ -92,13 +92,25 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 <p>讀取(select、selectByPk，以及save、del、delAll內之讀取)可見本次呼叫前已提交之資料，含同一程序之其他實例與其他程序之提交；惟select於useCache開啟且快取命中時回傳快取。</p>
 <p>主鍵(id)經LMDB鍵編碼後不可超過1978位元組(UTF-8；首字元碼小於28者另計1位元組跳脫)：insert與insertBulk遇之整批reject而不寫入任何一筆，save該筆ok為0；
 讀取側(selectByPk、del與save內之讀取)對超過者一律視為未命中。
-註: 值非物件之紀錄(他方寫入)於insert與insertBulk視為已存在(以鍵判定)，於selectByPk、save與del視為不存在。</p></li></ul></dd>
+註: 值非物件之紀錄(他方寫入)於insert與insertBulk視為已存在(以鍵判定)，於selectByPk、save與del視為不存在。</p>
+<p>字串良構(w-orm系列規則，wsemi之chkOrmStr與chkOrmData): LMDB之值編碼會把孤立代理字元(String.prototype.isWellFormed()為false)改寫為三個U+FFFD，
+使寫入值與讀回值不同、文件內相異鍵名撞鍵而靜默覆蓋、讀回之id無法再定址該列，故於任何讀取與寫入之前拒收：</p>
+<ol>
+<li>主鍵(id)不得含孤立代理字元與NUL，不隨autoGenPk改變；</li>
+<li>寫入資料(insert、insertBulk、save)之字串值與鍵名(含巢狀物件、陣列元素、Map與Set之項目、Error與RegExp之文字)不得含孤立代理字元，值與鍵名之NUL不拒；</li>
+<li>opt.url、opt.db、opt.cl含孤立代理字元者於建構時throw，訊息為invalid opt.&lt;名&gt;: string contains lone surrogate。
+處置與無效主鍵同形：insert與insertBulk整批reject而不寫入任何一筆(error事件先於reject)，save與del該筆ok為0並附err(同批其他筆照常)，selectByPk回null；
+訊息為固定詞彙而不回顯值：invalid id: 原因 at [data[k].id]、invalid data: 原因 at [data[k].路徑](k為批次索引，單一物件為0；不合格之鍵名以<invalid key>標示)，
+原因為string contains lone surrogate、string contains NUL(僅主鍵)、not a string或string is empty(del之id未給、非字串或空字串)。
+U+FFFD本身與成對代理(emoji等)為良構，照常接受。既有資料不遷移，檢出與清除法見README。</li>
+</ol>
+<p>一致性備份(w-orm-lmdb專屬擴充，系列其他後端無對應函數): backup(fpTar, { compact })以LMDB環境複製產生某一提交點之完整快照，服務運行中(本程序或另一程序寫入)亦一致，詳見backup之說明與README。</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line58">line 58</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line74">line 74</a>
     </li></ul></dd>
     
 
@@ -270,7 +282,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
                 </td>
             
 
-            <td class="description last"><p>輸入資料庫用資料夾字串，預設'_db'</p></td>
+            <td class="description last"><p>輸入資料庫用資料夾字串，預設'_db'；含孤立代理字元者建構時throw</p></td>
         </tr>
 
     
@@ -310,7 +322,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
                 </td>
             
 
-            <td class="description last"><p>輸入使用資料庫名稱字串，預設'worm'</p></td>
+            <td class="description last"><p>輸入使用資料庫名稱字串，預設'worm'；含孤立代理字元者建構時throw</p></td>
         </tr>
 
     
@@ -350,7 +362,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
                 </td>
             
 
-            <td class="description last"><p>輸入使用資料表名稱字串，預設'test'</p></td>
+            <td class="description last"><p>輸入使用資料表名稱字串，預設'test'；含孤立代理字元者建構時throw</p></td>
         </tr>
 
     
@@ -511,6 +523,302 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 
     
 
+    <h4 class="name" id=".backup"><span class="type-signature type-signature-async, static">(async, static) </span>backup<span class="signature">(fpTar, option<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise}</span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>一致性備份(w-orm-lmdb專屬擴充, 系列其他後端無對應函數)</p>
+<p>以LMDB之環境複製(mdb_env_copy, lmdb-js之backup)產生本資料表之備份: 複製於讀交易下進行，所得為某一提交點之完整快照，
+本程序或其他程序同時寫入不致產生撕裂(直接複製或壓縮data.mdb可能讀到寫入中之頁面而不一致)，亦不阻擋寫入。
+快照含呼叫前已await完成之寫入；呼叫當下進行中而未完成之寫入不保證含入。備份進行期間環境保有一個讀交易，期間被覆寫之頁面不被回收，資料庫檔可能暫時增大。</p>
+<p>目標fpTar為資料夾：不存在時(含其上層)自動建立；已存在時須為空資料夾，否則整批reject而不寫入任何東西(不覆蓋、不合併)；
+不得為本資料表自身之資料夾或其內(以實體路徑比對，經符號連結或連接點之別名亦同)。完成後目標內只有data.mdb(不含lock.mdb)，其為完整之LMDB資料庫檔，
+還原法為將data.mdb置於資料表資料夾(url/db/cl)內以WOrmLmdb開啟，或直接以lmdb開啟該目標資料夾。
+備份先寫於目標內之暫存子資料夾，完成後再確認目標內除該暫存夾外別無他物(備份期間他處於目標內建立東西者整批reject且不動該東西)，才以改名將data.mdb移入目標、再刪暫存子資料夾，故目標內出現data.mdb即表示複製已完成；
+失敗時移除暫存子資料夾，並自目標向上逐層移除本次所建立之資料夾(僅限空資料夾，他處於其內建立之內容不刪)，已存在之空目標資料夾原樣保留。</p>
+<p>fpTar須為非空字串且良構(不含孤立代理字元與NUL，與系列字串良構規則一致)，否則整批reject，訊息為invalid fpTar: 原因(原因同主鍵：not a string、string is empty、
+string contains NUL、string contains lone surrogate)。已關閉之實例整批reject。錯誤皆於reject之前發出一次error事件(mode為'backup'，data為null以不回顯路徑)，不發出change事件(不異動資料)。
+備份進行中呼叫close()會等候備份結束後才關閉環境，期間實例已視為已關閉而拒絕新操作。</p>
+<p>註: 以另一程序備份時，於該程序以同一url、db、cl建構實例後呼叫本函數即可(讀取可由任意多個程序進行)；建構不存在之資料表會建立空環境，請只對既有資料表備份。</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1360">line 1360</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <h5 class="h5-parameters">Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+        <th>Default</th>
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>fpTar</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入備份目標資料夾路徑字串</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>option</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>{}</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入設定物件，預設{}</p>
+                <h6>Properties</h6>
+                
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+        <th>Default</th>
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>compact</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>true</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入是否於備份時壓實(較慢但檔案較小)，預設true；僅布林值生效，其餘值視同預設</p></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+            </td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5 class="h5-returns">Returns:</h5>
+
+        
+<div class="param-desc">
+    <p>回傳Promise，resolve回傳{ok,fpData,size,compact}，fpData為產出之data.mdb絕對路徑，size為其位元組數；reject回傳錯誤訊息</p>
+</div>
+
+
+
+<dl class="param-type">
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Promise</span>
+
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+        
+            
+
+    
+
     <h4 class="name" id=".del"><span class="type-signature type-signature-async, static">(async, static) </span>del<span class="signature">(data)</span><span class="type-signature"> &rarr; {Promise}</span></h4>
 
     
@@ -527,7 +835,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line960">line 960</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1065">line 1065</a>
     </li></ul></dd>
     
 
@@ -645,7 +953,7 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve回傳與輸入等長之刪除結果陣列，各筆為{n,nDeleted,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗或未給有效id者ok為0並附err，reject回傳錯誤訊息；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認</p>
+    <p>回傳Promise，resolve回傳與輸入等長之刪除結果陣列，各筆為{n,nDeleted,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗或未給有效id者(id未給、非字串、空字串、含NUL或孤立代理字元，err為invalid id: 原因 at [data[k].id]，不回顯值)ok為0並附err，reject回傳錯誤訊息；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認</p>
 </div>
 
 
@@ -709,7 +1017,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1131">line 1131</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1239">line 1239</a>
     </li></ul></dd>
     
 
@@ -887,7 +1195,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line467">line 467</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line544">line 544</a>
     </li></ul></dd>
     
 
@@ -1131,7 +1439,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve依returnList回傳插入結果：預設回傳聚合物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數；returnList為true時回傳逐筆陣列，各筆n恆為1(主鍵命中或經插入)、ok恆為1(insert之錯誤皆屬整批性而reject，不進逐筆)；reject回傳錯誤訊息。整批性錯誤(實例已關閉、autoGenPk為false而未帶有效主鍵、數據元素非物件、主鍵經LMDB鍵編碼後超過1978位元組、數據無法序列化)皆於任何寫入之前檢出而reject，不寫入任何一筆</p>
+    <p>回傳Promise，resolve依returnList回傳插入結果：預設回傳聚合物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數；returnList為true時回傳逐筆陣列，各筆n恆為1(主鍵命中或經插入)、ok恆為1(insert之錯誤皆屬整批性而reject，不進逐筆)；reject回傳錯誤訊息。整批性錯誤(實例已關閉、autoGenPk為false而未帶有效主鍵、數據元素非物件、主鍵含NUL或孤立代理字元[invalid id: 原因 at [data[k].id]]、資料之鍵名或字串值含孤立代理字元[invalid data: 原因 at [data[k].路徑]]、主鍵經LMDB鍵編碼後超過1978位元組、數據無法序列化)皆於任何寫入之前檢出而reject，不寫入任何一筆</p>
 </div>
 
 
@@ -1178,7 +1486,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line595">line 595</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line675">line 675</a>
     </li></ul></dd>
     
 
@@ -1296,7 +1604,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve回傳插入結果物件{n,nInserted,ok}，n為輸入筆數、nInserted成功時恆等於n，任一筆主鍵已存在則reject回傳錯誤訊息</p>
+    <p>回傳Promise，resolve回傳插入結果物件{n,nInserted,ok}，n為輸入筆數、nInserted成功時恆等於n，任一筆主鍵已存在則reject回傳錯誤訊息；主鍵含NUL或孤立代理字元、資料之鍵名或字串值含孤立代理字元者同insert整批reject</p>
 </div>
 
 
@@ -1343,7 +1651,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line711">line 711</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line794">line 794</a>
     </li></ul></dd>
     
 
@@ -1627,7 +1935,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗者(如須插入而主鍵超過上述上限、數據無法序列化)ok為0並附err，reject回傳錯誤訊息；數據元素非物件等整批性錯誤於任何寫入之前reject；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已處理之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認</p>
+    <p>回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗者(如主鍵含NUL或孤立代理字元[invalid id: 原因 at [data[k].id]]、資料之鍵名或字串值含孤立代理字元[invalid data: 原因 at [data[k].路徑]]、須插入而主鍵超過上述上限、數據無法序列化)ok為0並附err，reject回傳錯誤訊息；數據元素非物件等整批性錯誤於任何寫入之前reject；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已處理之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認</p>
 </div>
 
 
@@ -1671,7 +1979,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line339">line 339</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line416">line 416</a>
     </li></ul></dd>
     
 
@@ -1850,7 +2158,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line411">line 411</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line488">line 488</a>
     </li></ul></dd>
     
 
@@ -1965,7 +2273,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve回傳數據物件，若無此主鍵則回傳null(主鍵經LMDB鍵編碼後超過1978位元組者必不存在，亦回傳null)，reject回傳錯誤訊息</p>
+    <p>回傳Promise，resolve回傳數據物件，若無此主鍵則回傳null(主鍵經LMDB鍵編碼後超過1978位元組者必不存在，亦回傳null；主鍵含NUL或孤立代理字元者亦回傳null，不reject)，reject回傳錯誤訊息</p>
 </div>
 
 
@@ -2007,7 +2315,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Oct 20 2026 01:50:58 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 21 2026 00:15:03 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

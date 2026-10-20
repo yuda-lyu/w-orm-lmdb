@@ -397,7 +397,7 @@ describe('closing', function() {
         assert.strict.deepStrictEqual(vget[15], vans[15])
     })
 
-    vans[16] = { type: 'resolve', res: [{ n: 0, nDeleted: 0, ok: 0, err: 'can not delete by invalid id[]' }], fast: true }
+    vans[16] = { type: 'resolve', res: [{ n: 0, nDeleted: 0, ok: 0, err: 'invalid id: not a string at [data[0].id]' }], fast: true }
     it(`should get ${JSON.stringify(vans[16])} for del without valid id with close right after call`, async function() {
         assert.strict.deepStrictEqual(vget[16], vans[16])
     })

@@ -59,6 +59,60 @@ A primary key (`id`) may take at most 1978 bytes once encoded as an LMDB key: it
 
 `save` handles a row whose key is too long, or whose value cannot be serialized, as a failure of that row only: that row gets `ok: 0` with `err`, and the other rows are saved. `selectByPk`, `del` and the lookups inside `save` treat a key that is too long as not found, because such a key cannot exist.
 
+### Consistent backup: `backup(fpTar, { compact })` (一致性備份)
+
+Copying or compressing `data.mdb` while the table is being written can read pages in the middle of a write and give an inconsistent backup. `backup` uses the LMDB environment copy (`mdb_env_copy`, `lmdb-js` `backup(path, compact)`), which runs inside a read transaction: the result is a complete snapshot of one commit point, whether the writes come from this process or from another one, and writers are not blocked. It is an extension of `w-orm-lmdb`; the other `w-orm-*` backends have no counterpart (so it is an instance method, not part of the shared series functions; a separate exported function would also change the export shape of the UMD build).
+
+```alias
+let wo = WOrmLmdb({ url: './_db', db: 'worm', cl: 'users' })
+let r = await wo.backup('./backup/users', { compact: true })
+// => { ok: 1, fpData: '<absolute path>/backup/users/data.mdb', size: 61440, compact: true }
+```
+
+- **Target** `fpTar` is a folder. A missing folder (and its parents) is created. An existing folder must be empty, otherwise the call rejects (`can not backup by target folder which is not empty`) and nothing is written: it never overwrites or merges. A target that is a file, or the table's own folder or a folder inside it, is rejected too (compared on real paths, so a junction or symbolic link to it does not get around the check). When it succeeds the target holds exactly one file, `data.mdb` (no `lock.mdb`).
+- **Complete or absent**: the copy is written into a temporary sub-folder of the target and `data.mdb` is moved into place only after the copy has finished, after checking once more that the target still holds nothing but that temporary sub-folder (something created in it by someone else meanwhile makes the call reject and is left untouched), so a `data.mdb` that appears in the target is always complete, even if the process is killed during the backup (only a leftover `.backup-*` sub-folder can remain, and the next backup into the same folder is refused until you remove it). On an error the temporary sub-folder is removed, and the folders this call created are removed only while they are empty (content that someone else put into them in the meantime is never deleted); an existing empty target is left as it was.
+- **Snapshot**: it contains every write that had been awaited before the call; a write still in flight when `backup` is called may or may not be included. While the copy runs the environment keeps a read transaction, so pages overwritten in the meantime cannot be reused and the database file may grow temporarily.
+- **`compact`** (default `true`): compacts while copying (slower, smaller file). Only a boolean takes effect; any other value means the default.
+- **Restore**: put `data.mdb` into the table folder (`<url>/<db>/<cl>/data.mdb`) and open it with `WOrmLmdb`, or open the backup folder directly with `lmdb`.
+- **Errors**: a closed instance, an invalid `fpTar`, an unsafe target or a file system error rejects (`can not backup by closed client, ...`, `invalid fpTar: <reason>`, `can not backup by ...`, `can not backup, <original message>`), after emitting one `error` event with mode `'backup'` and `data` `null` (the path is not echoed; no `change` event: nothing is modified). `fpTar` must be a non-empty well-formed string (no lone surrogate, no NUL); `<reason>` is `not a string`, `string is empty`, `string contains NUL` or `string contains lone surrogate` (see "Strings must be well-formed").
+- **`close()` waits for a running backup**: closing the environment while it is being copied crashes the process (segmentation fault, measured with `lmdb-js` 3.5.6 on Windows). `close()` therefore waits for backups in progress, and from the moment it is called the instance already rejects new operations as closed. Still `await` the backup before closing when you can.
+- **Backing up from another process** (for example a backup service): construct a `WOrmLmdb` with the same `url`, `db` and `cl` in that process and call `backup`; reading from any number of processes is safe. Constructing an instance for a table that does not exist creates an empty one, so only back up existing tables.
+
+### Strings must be well-formed (字串良構)
+
+A JavaScript string may hold a lone surrogate (half of a surrogate pair, e.g. `'a\uD800'`; `isWellFormed()` is `false`). LMDB cannot store it as it was written: the value encoder rewrites every lone surrogate in a value or in a field name into **three** U+FFFD characters, so what is read back differs from what was written, two field names that differ only in such a character collapse into one and the later value silently overwrites the earlier one (`{ 'k\uD800': 1, 'k���': 2 }` keeps only one field), and the `id` field read back no longer addresses the row (`selectByPk(row.id)` is `null`). `w-orm-lmdb` therefore refuses them up front, before anything is read or written, with the shared checks `chkOrmStr` and `chkOrmData` of `wsemi` (the same series-wide rule for every `w-orm-*` backend):
+
+- **Primary key** (`id`): no lone surrogate and no NUL character (U+0000), the same standard as `find`. This applies whatever `autoGenPk` is.
+- **Written data** (`insert`, `insertBulk`, `save`): no lone surrogate in any string value or field name, including nested objects, array elements, `Map`/`Set` entries, and the text of `Error`/`RegExp` values. A NUL character inside a value or a field name is not refused by this rule.
+- **`opt.url`, `opt.db`, `opt.cl`**: a lone surrogate makes the constructor throw `invalid opt.<name>: string contains lone surrogate` (the path would be rewritten by the file system, so two different names would share one data folder).
+- U+FFFD itself and valid surrogate pairs (emoji, CJK Extension B and above) are well-formed and accepted as before.
+
+How a refusal is reported (the same shape as the existing "invalid primary key" cases; the message uses a fixed vocabulary and never echoes the value):
+
+| Call | Result |
+|---|---|
+| `insert`, `insertBulk` | the whole call rejects and nothing is written; an `error` event is emitted once before the rejection |
+| `save`, `del` | that row gets `ok: 0` with `err`; the other rows of the batch are processed as usual |
+| `selectByPk` | `null` (no rejection, no event) |
+| `select`, `delAll` | unchanged: `invalid find: <reason> at [<path>]` |
+
+Messages: `invalid id: <reason> at [data[<k>].id]` and `invalid data: <reason> at [data[<k>].<path>]` (`<k>` is the index in the batch, `data[0]` for a single object; a refused field name is shown as `<invalid key>`), where `<reason>` is `string contains lone surrogate`, `string contains NUL` (primary key only), `not a string` or `string is empty` (`del` with a missing, non-string or empty `id`; this replaces the former `can not delete by invalid id[...]`, which echoed the value). The first refused row (lowest index) is reported, and within a row the primary key is checked before the data.
+
+Existing data is not migrated. Rows written before this rule with a lone surrogate in the primary key still exist: the key itself was stored as written, but the `id` field reads back as three U+FFFD (well-formed, so `isWellFormed()` cannot find them). They are recognised by an `id` that no longer addresses its own row:
+
+```alias
+let orphans = []
+for (let r of await wo.select()) {
+    if (typeof r.id === 'string' && (await wo.selectByPk(r.id)) === null) {
+        orphans.push(r)
+    }
+}
+```
+
+The same snippet also finds rows written earlier whose id contains a NUL character: the id reads back intact, but it can no longer be used to address the row now that a NUL in a primary key is refused. Remove a lone-surrogate row with `await wo.delAll({ id: row.id })` (it matches by value and deletes by the real key; a row whose id really is those U+FFFD characters would be matched too). A row whose id contains NUL cannot be removed that way (`find` refuses NUL too, `invalid find: string contains NUL`): remove it by another field of the row, for example `delAll({ name: row.name })`, or with `delAll()` for the whole table. A lone surrogate that was already rewritten inside a value or a field name cannot be told apart from a genuine U+FFFD afterwards. Reading (`select`) keeps working for all existing rows.
+
+Known limitations: a `String` wrapper object (`new String('...')`) is checked as a string value but is not unwrapped; `toJSON` or other custom serialization output is not checked.
+
 ### `save` merges by default; `save(data, { merge: false })` overwrites the whole record
 
 By default `save` deep-merges each row into the existing record with the same `id`: fields that the row does not give are kept, array fields are merged element by element, and there is no way to remove a field. To replace a record as a whole, pass `merge: false`:
@@ -353,9 +407,9 @@ test()
 // save then [ { n: 1, nInserted: 0, nModified: 1, ok: 1 } ]
 // change del
 // del then [ { n: 1, nDeleted: 1, ok: 1 } ]
-// error del can not delete by invalid id[]
+// error del invalid id: not a string at [data[0].id]
 // change del
-// del by data without id then [ { n: 0, nDeleted: 0, ok: 0, err: 'can not delete by invalid id[]' } ]
+// del by data without id then [ { n: 0, nDeleted: 0, ok: 0, err: 'invalid id: not a string at [data[0].id]' } ]
 // change insertBulk
 // insertBulk then { n: 2, nInserted: 2, ok: 1 }
 // error insertBulk can not insertBulk by existed id[id-peter]

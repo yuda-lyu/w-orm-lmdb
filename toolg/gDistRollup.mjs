@@ -14,10 +14,14 @@ rollupFiles({
     globals: {
         'lmdb': 'lmdb',
         'mingo': 'mingo',
+        'fs': 'fs',
+        'path': 'path',
     },
     external: [
         'lmdb',
         'mingo',
+        'fs',
+        'path',
     ],
 })
 

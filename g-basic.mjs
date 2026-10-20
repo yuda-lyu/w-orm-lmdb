@@ -239,9 +239,9 @@ test()
 // save then [ { n: 1, nInserted: 0, nModified: 1, ok: 1 } ]
 // change del
 // del then [ { n: 1, nDeleted: 1, ok: 1 } ]
-// error del can not delete by invalid id[]
+// error del invalid id: not a string at [data[0].id]
 // change del
-// del by data without id then [ { n: 0, nDeleted: 0, ok: 0, err: 'can not delete by invalid id[]' } ]
+// del by data without id then [ { n: 0, nDeleted: 0, ok: 0, err: 'invalid id: not a string at [data[0].id]' } ]
 // change insertBulk
 // insertBulk then { n: 2, nInserted: 2, ok: 1 }
 // error insertBulk can not insertBulk by existed id[id-peter]

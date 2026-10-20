@@ -1,3 +1,5 @@
+import fs from 'fs'
+import path from 'path'
 import { open, ABORT, keyValueToBuffer } from 'lmdb'
 // import mingo from 'mingo' //mingo內未更新import寫法, 會導致ERR_UNSUPPORTED_DIR_IMPORT, 故須改用require引入使用
 import mingo from './reqMingo.js'
@@ -18,6 +20,8 @@ import evem from 'wsemi/src/evem.mjs'
 import genIDSeq from 'wsemi/src/genIDSeq.mjs'
 import pmSeries from 'wsemi/src/pmSeries.mjs'
 import cvOrmFind from 'wsemi/src/cvOrmFind.mjs'
+import chkOrmStr from 'wsemi/src/chkOrmStr.mjs'
+import chkOrmData from 'wsemi/src/chkOrmData.mjs'
 
 
 /**
@@ -34,7 +38,7 @@ import cvOrmFind from 'wsemi/src/cvOrmFind.mjs'
  * 逐筆函數以整批為單位發出一次而不逐筆發出，select與selectByPk不發出本事件。
  *
  * error事件，參數為(mode, data, err)，於操作發生錯誤時發出：
- * mode為操作別字串，可為'select'、'selectByPk'、'insert'、'insertBulk'、'save'、'del'、'delAll'。
+ * mode為操作別字串，可為'select'、'selectByPk'、'insert'、'insertBulk'、'save'、'del'、'delAll'、'backup'。
  * data為本次操作之輸入數據，無輸入數據者為null。
  * err為錯誤訊息字串，內容與正規管道所送出者一致。
  * 整批性錯誤於reject之前發出；逐筆失敗於整批定案後依序發出，每筆一次，整批因整批性錯誤而reject者不發出。
@@ -46,11 +50,23 @@ import cvOrmFind from 'wsemi/src/cvOrmFind.mjs'
  * 讀取側(selectByPk、del與save內之讀取)對超過者一律視為未命中。
  * 註: 值非物件之紀錄(他方寫入)於insert與insertBulk視為已存在(以鍵判定)，於selectByPk、save與del視為不存在。
  *
+ * 字串良構(w-orm系列規則，wsemi之chkOrmStr與chkOrmData): LMDB之值編碼會把孤立代理字元(String.prototype.isWellFormed()為false)改寫為三個U+FFFD，
+ * 使寫入值與讀回值不同、文件內相異鍵名撞鍵而靜默覆蓋、讀回之id無法再定址該列，故於任何讀取與寫入之前拒收：
+ * 1. 主鍵(id)不得含孤立代理字元與NUL，不隨autoGenPk改變；
+ * 2. 寫入資料(insert、insertBulk、save)之字串值與鍵名(含巢狀物件、陣列元素、Map與Set之項目、Error與RegExp之文字)不得含孤立代理字元，值與鍵名之NUL不拒；
+ * 3. opt.url、opt.db、opt.cl含孤立代理字元者於建構時throw，訊息為invalid opt.<名>: string contains lone surrogate。
+ * 處置與無效主鍵同形：insert與insertBulk整批reject而不寫入任何一筆(error事件先於reject)，save與del該筆ok為0並附err(同批其他筆照常)，selectByPk回null；
+ * 訊息為固定詞彙而不回顯值：invalid id: 原因 at [data[k].id]、invalid data: 原因 at [data[k].路徑](k為批次索引，單一物件為0；不合格之鍵名以<invalid key>標示)，
+ * 原因為string contains lone surrogate、string contains NUL(僅主鍵)、not a string或string is empty(del之id未給、非字串或空字串)。
+ * U+FFFD本身與成對代理(emoji等)為良構，照常接受。既有資料不遷移，檢出與清除法見README。
+ *
+ * 一致性備份(w-orm-lmdb專屬擴充，系列其他後端無對應函數): backup(fpTar, { compact })以LMDB環境複製產生某一提交點之完整快照，服務運行中(本程序或另一程序寫入)亦一致，詳見backup之說明與README。
+ *
  * @class
  * @param {Object} [opt={}] 輸入設定物件，預設{}
- * @param {String} [opt.url='_db'] 輸入資料庫用資料夾字串，預設'_db'
- * @param {String} [opt.db='worm'] 輸入使用資料庫名稱字串，預設'worm'
- * @param {String} [opt.cl='test'] 輸入使用資料表名稱字串，預設'test'
+ * @param {String} [opt.url='_db'] 輸入資料庫用資料夾字串，預設'_db'；含孤立代理字元者建構時throw
+ * @param {String} [opt.db='worm'] 輸入使用資料庫名稱字串，預設'worm'；含孤立代理字元者建構時throw
+ * @param {String} [opt.cl='test'] 輸入使用資料表名稱字串，預設'test'；含孤立代理字元者建構時throw
  * @param {Boolean} [opt.useCache=false] 輸入是否使用select快取，快取只反映本實例之寫入，不反映同一程序之其他實例或其他程序之寫入，故僅適用於同一資料表只由本實例存取之情形；delAll一律直讀資料庫而不經快取，預設false
  * @param {Boolean} [opt.autoGenPk=true] 輸入insert與save於數據未帶有效主鍵(本套件為id欄位)時是否自動產生主鍵值，預設true；給false代表主鍵改由呼叫端自備，套件不產生亦不檢查其唯一性與格式，未帶有效主鍵者將reject
  * @returns {Object} 回傳操作資料庫物件，各事件功能詳見說明
@@ -60,10 +76,22 @@ function WOrmLmdb(opt = {}) {
     //_cache
     let _cache = null
 
+    //chkOptStr, 儲存位址名稱(opt.url、opt.db、opt.cl)之良構檢核, 孤立代理字元者於建構時同步throw, 先於open建立任何資料夾:
+    //路徑經檔案系統UTF-8化後孤立代理被改寫為U+FFFD, 不同名稱將落到同一位置而兩實例共用同一資料表; 名稱不檢NUL(opt.nul為false), 訊息不回顯值
+    let chkOptStr = (name, v) => {
+        let r = chkOrmStr(v, { nul: false })
+        if (r !== null) {
+            throw new Error(`invalid opt.${name}: ${r}`)
+        }
+    }
+
     //url
     let url = get(opt, 'url')
     if (!isestr(url)) {
         url = './_db'
+    }
+    else {
+        chkOptStr('url', url)
     }
 
     //db
@@ -71,11 +99,17 @@ function WOrmLmdb(opt = {}) {
     if (!isestr(db)) {
         db = 'worm'
     }
+    else {
+        chkOptStr('db', db)
+    }
 
     //cl
     let cl = get(opt, 'cl')
     if (!isestr(cl)) {
         cl = 'test'
+    }
+    else {
+        chkOptStr('cl', cl)
     }
 
     //useCache
@@ -181,10 +215,14 @@ function WOrmLmdb(opt = {}) {
         return ltdt
     }
 
+    //closing, close()遇備份進行中而須先等候其結束時為true(此時client尚未呼叫close, status仍為'open'), 令實例於等候期間即視為已關閉而拒絕新操作;
+    //無備份進行中時close()同步呼叫client.close(), status即時轉'closing', 此旗標恆為false, 行為與未加備份功能前相同
+    let closing = false
+
     //isClosed, close()後lmdb之status由'open'轉'closing', 待未完成之寫入結束後再轉'closed', 二者皆為終態,
     //一律視為已關閉; status僅此三值, 且'open'於open()回傳前即已設定, 故無開啟中而須等待之狀態
     let isClosed = () => {
-        return client.status !== 'open'
+        return closing || client.status !== 'open'
     }
 
     //getClosedMsg, 已關閉之錯誤訊息
@@ -273,6 +311,45 @@ function WOrmLmdb(opt = {}) {
             }
         })
         return data
+    }
+
+    //chkPk, 主鍵之檢核, 回傳null(合格)或固定原因字串(不回顯值), 供寫入前(procWellFormed)、selectByPk與del共用:
+    //空字串非有效主鍵(同isestr); 其餘依wsemi之chkOrmStr: 非字串、含NUL(主鍵併入NUL, 與find同標準)、含孤立代理字元(經lmdb值編碼後id欄被改寫為三個U+FFFD,
+    //讀回之id無法再定址該列, 且鍵本身為CESU-8而不與U+FFFD之鍵相撞, 故寫入之id與讀回之id不同)
+    let chkPk = (id) => {
+        if (id === '') {
+            return 'string is empty'
+        }
+        return chkOrmStr(id)
+    }
+
+    //getWellFormedMsg, 檢核第k筆之主鍵與資料, 回傳null(合格)或錯誤訊息; 訊息為固定詞彙而不回顯值, 路徑含批次索引(單一物件呼叫之索引為data[0]),
+    //與wsemi之cvOrmFind及案例表同詞彙:
+    //  invalid id: <原因> at [data[<k>].id]
+    //  invalid data: <原因> at [data[<k>].<路徑>]
+    //1.作用於procPk之後(已cloneDeep並補主鍵)之複本, 且其後之判定、寫入皆只用該複本, 檢查之值即使用之值; 自有存取器於cloneDeep時已轉為資料屬性
+    //2.同一筆主鍵先於資料; 資料(chkOrmData)檢鍵名與字串值(含巢狀物件、陣列、Map、Set、Error與RegExp之文字)之孤立代理字元, 值與鍵名之NUL不拒
+    //3.不隨autoGenPk改變: 如實存放性檢核, 非格式偏好(同keyFits)
+    let getWellFormedMsg = (v, k) => {
+        let r = chkPk(v.id)
+        if (r !== null) {
+            return `invalid id: ${r} at [data[${k}].id]`
+        }
+        let e = chkOrmData(v, { root: `data[${k}]` })
+        if (e !== null) {
+            return `invalid data: ${e.reason} at [${e.path}]`
+        }
+        return null
+    }
+
+    //procWellFormed, 供insert與insertBulk於任何寫入之前檢核各筆: 任一筆不合格即拋出為整批性錯誤(以索引最小者為準)而不寫入任何一筆
+    let procWellFormed = (data) => {
+        each(data, function(v, k) {
+            let msg = getWellFormedMsg(v, k)
+            if (msg !== null) {
+                throw new Error(msg)
+            }
+        })
     }
 
     //maxKeySize, lmdb之鍵經編碼後之位元組數上限(預設1978)
@@ -406,7 +483,7 @@ function WOrmLmdb(opt = {}) {
      *
      * @memberOf WOrmLmdb
      * @param {String} pk 輸入主鍵值字串，本套件之主鍵欄位為id
-     * @returns {Promise} 回傳Promise，resolve回傳數據物件，若無此主鍵則回傳null(主鍵經LMDB鍵編碼後超過1978位元組者必不存在，亦回傳null)，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳數據物件，若無此主鍵則回傳null(主鍵經LMDB鍵編碼後超過1978位元組者必不存在，亦回傳null；主鍵含NUL或孤立代理字元者亦回傳null，不reject)，reject回傳錯誤訊息
      */
     async function selectByPk(pk) {
 
@@ -419,8 +496,8 @@ function WOrmLmdb(opt = {}) {
 
         try {
 
-            //check
-            if (!isestr(pk)) {
+            //check, 含NUL或孤立代理字元之主鍵亦屬無效(chkPk): 孤立代理字元於值編碼後被改寫, 此類主鍵不可能由本套件寫入(寫入側已拒收), 回null而不reject, 不發出error事件
+            if (!isestr(pk) || chkPk(pk) !== null) {
                 //未給有效主鍵值視為查無數據
                 return null
             }
@@ -462,7 +539,7 @@ function WOrmLmdb(opt = {}) {
      * @param {Object|Array} data 輸入數據物件或陣列
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {Boolean} [option.returnList=false] 輸入是否改回傳逐筆結果布林值，預設false。給true時回傳與輸入等長保序之陣列，各筆為{n,nInserted,ok}，nInserted為1即該筆為新增；聚合計數只回答有幾筆是新的，逐筆結果方能回答是哪幾筆，供下游僅對新資料執行昂貴動作。回傳形式由呼叫點靜態決定，共用之結果處理程式碼不可跨不同取值之呼叫點混用
-     * @returns {Promise} 回傳Promise，resolve依returnList回傳插入結果：預設回傳聚合物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數；returnList為true時回傳逐筆陣列，各筆n恆為1(主鍵命中或經插入)、ok恆為1(insert之錯誤皆屬整批性而reject，不進逐筆)；reject回傳錯誤訊息。整批性錯誤(實例已關閉、autoGenPk為false而未帶有效主鍵、數據元素非物件、主鍵經LMDB鍵編碼後超過1978位元組、數據無法序列化)皆於任何寫入之前檢出而reject，不寫入任何一筆
+     * @returns {Promise} 回傳Promise，resolve依returnList回傳插入結果：預設回傳聚合物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數；returnList為true時回傳逐筆陣列，各筆n恆為1(主鍵命中或經插入)、ok恆為1(insert之錯誤皆屬整批性而reject，不進逐筆)；reject回傳錯誤訊息。整批性錯誤(實例已關閉、autoGenPk為false而未帶有效主鍵、數據元素非物件、主鍵含NUL或孤立代理字元[invalid id: 原因 at [data[k].id]]、資料之鍵名或字串值含孤立代理字元[invalid data: 原因 at [data[k].路徑]]、主鍵經LMDB鍵編碼後超過1978位元組、數據無法序列化)皆於任何寫入之前檢出而reject，不寫入任何一筆
      */
     async function insert(data, option = {}) {
 
@@ -505,6 +582,9 @@ function WOrmLmdb(opt = {}) {
 
             //check id
             data = procPk(data, 'insert')
+
+            //check well-formed, 主鍵(併入NUL)與資料之孤立代理字元, 須於任何寫入之前完成, 只用上方cloneDeep之複本
+            procWellFormed(data)
 
             //check writable, 須於任何寫入之前完成, 其後之寫入呼叫不再同步拋錯, 故不會部份寫入
             procWritable(data, 'insert')
@@ -590,7 +670,7 @@ function WOrmLmdb(opt = {}) {
      *
      * @memberOf WOrmLmdb
      * @param {Object|Array} data 輸入數據物件或陣列
-     * @returns {Promise} 回傳Promise，resolve回傳插入結果物件{n,nInserted,ok}，n為輸入筆數、nInserted成功時恆等於n，任一筆主鍵已存在則reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳插入結果物件{n,nInserted,ok}，n為輸入筆數、nInserted成功時恆等於n，任一筆主鍵已存在則reject回傳錯誤訊息；主鍵含NUL或孤立代理字元、資料之鍵名或字串值含孤立代理字元者同insert整批reject
      */
     async function insertBulk(data) {
 
@@ -627,6 +707,9 @@ function WOrmLmdb(opt = {}) {
 
             //check id
             data = procPk(data, 'insertBulk')
+
+            //check well-formed, 同insert
+            procWellFormed(data)
 
             //check writable, 交易回滾雖已保證全無寫入, 仍於寫入前檢出以與insert之訊息一致
             procWritable(data, 'insertBulk')
@@ -706,7 +789,7 @@ function WOrmLmdb(opt = {}) {
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {boolean} [option.autoInsert=true] 輸入是否於儲存時發現原本無數據，則自動改以插入處理，預設為true；merge為false時同樣適用，已有數據者不受影響
      * @param {boolean} [option.merge=true] 輸入已有數據時是否將輸入深層合併進既有數據，預設為true；僅嚴格給false才改為整筆覆寫(存入者恰為該筆輸入之內容)，其餘值(含null、0、'false')一律視同true。覆寫時[內容相同不寫入]之基準為輸入與既有數據相同
-     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗者(如須插入而主鍵超過上述上限、數據無法序列化)ok為0並附err，reject回傳錯誤訊息；數據元素非物件等整批性錯誤於任何寫入之前reject；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已處理之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認
+     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗者(如主鍵含NUL或孤立代理字元[invalid id: 原因 at [data[k].id]]、資料之鍵名或字串值含孤立代理字元[invalid data: 原因 at [data[k].路徑]]、須插入而主鍵超過上述上限、數據無法序列化)ok為0並附err，reject回傳錯誤訊息；數據元素非物件等整批性錯誤於任何寫入之前reject；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已處理之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認
      */
     async function save(data, option = {}) {
 
@@ -751,8 +834,14 @@ function WOrmLmdb(opt = {}) {
             //check id
             data = procPk(data, 'save')
 
-            //pmSeries
-            res = await pmSeries(data, async(v) => {
+            //msgs, 各筆主鍵(併入NUL)與資料之良構檢核結果(合格者為null), 於任何讀取與寫入之前完成, 只用上方cloneDeep之複本;
+            //save為逐筆函數, 不合格者僅該筆失敗(ok為0並附err), 同批其他筆照常處理
+            let msgs = map(data, function(v, k) {
+                return getWellFormedMsg(v, k)
+            })
+
+            //pmSeries, 回呼之第二參數為批次索引
+            res = await pmSeries(data, async(v, k) => {
 
                 //rest
                 let rest = null
@@ -761,6 +850,11 @@ function WOrmLmdb(opt = {}) {
                 let inserted = false
 
                 try {
+
+                    //不合格者以該筆失敗回報(下方catch組成ok為0之結果), 先於該筆之任何讀取與寫入
+                    if (msgs[k] !== null) {
+                        throw new Error(msgs[k])
+                    }
 
                     //快速路徑, 先不開寫交易直接預讀, 內容相同者本就不須寫入, 可省去開啟寫交易之成本
                     //預讀值縱使已被其他寫入者更動而過期亦不影響正確性, 因內容相同時本次save等價於無操作,
@@ -814,7 +908,18 @@ function WOrmLmdb(opt = {}) {
 
                             //vm, 寫入後之結果: 合併為合併後之結果; 覆寫為待寫入物件本身(舊記錄中不在其內之鍵不保留, 陣列欄位整筆替換),
                             //覆寫由同一寫交易內之put直接取代, 不經刪除, 故無[刪後插前]之空窗, put失敗(如數據無法序列化)時交易中止而原記錄仍在
-                            let vm = isOverwrite ? v : merge({}, vv, v)
+                            //合併路徑: vIn為以merge(lodash)讀取v一次所得之純資料物件, 檢核之並以之合併: merge以keysIn取值, 會讀到繼承之可列舉存取器(類別實例之原型上),
+                            //其每次讀取可回不同值, 上方對複本之檢核與此處合併所讀者未必相同, 故檢查之值即合併之值; 不合格者交易中止, 該筆ok為0;
+                            //只檢核來自輸入者(vIn), 不檢核現值vv之既有內容; 覆寫路徑之vm即v本身(msgpack只編碼自有屬性, 自有存取器已於cloneDeep轉為資料屬性), 不須再檢
+                            let vm = v
+                            if (!isOverwrite) {
+                                let vIn = merge({}, v)
+                                let eIn = chkOrmData(vIn, { root: `data[${k}]` })
+                                if (eIn !== null) {
+                                    throw new Error(`invalid data: ${eIn.reason} at [${eIn.path}]`)
+                                }
+                                vm = merge({}, vv, vIn)
+                            }
 
                             //判定基準為[寫入後結果與現值相同], 而非[待寫入物件與現值全等],
                             //令nModified忠實反映資料庫端是否真的寫入, 合併時僅給部份欄位且值皆相同者不應回報已修改
@@ -955,7 +1060,7 @@ function WOrmLmdb(opt = {}) {
      *
      * @memberOf WOrmLmdb
      * @param {Object|Array} data 輸入數據物件或陣列
-     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之刪除結果陣列，各筆為{n,nDeleted,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗或未給有效id者ok為0並附err，reject回傳錯誤訊息；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認
+     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之刪除結果陣列，各筆為{n,nDeleted,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗或未給有效id者(id未給、非字串、空字串、含NUL或孤立代理字元，err為invalid id: 原因 at [data[k].id]，不回顯值)ok為0並附err，reject回傳錯誤訊息；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認
      */
     async function del(data) {
 
@@ -986,8 +1091,8 @@ function WOrmLmdb(opt = {}) {
                 data = [data]
             }
 
-            //pmSeries
-            res = await pmSeries(data, async(v) => {
+            //pmSeries, 回呼之第二參數為批次索引
+            res = await pmSeries(data, async(v, k) => {
 
                 //rest
                 let rest = null
@@ -995,18 +1100,21 @@ function WOrmLmdb(opt = {}) {
                 try {
 
                     //id
-                    let id = get(v, 'id', '')
+                    let id = get(v, 'id')
+
+                    //check, 主鍵之檢核(chkPk): 非字串、空字串、含NUL、含孤立代理字元者皆無效
+                    let msgPk = chkPk(id)
 
                     //check
-                    if (!isestr(id)) {
+                    if (msgPk !== null) {
                         //未給有效v.id視為該筆數據有問題而無法處理, 以ok為0並附err回報,
-                        //與[已給v.id但查無數據]之ok為1有別, 二者須可由ok分辨
+                        //與[已給v.id但查無數據]之ok為1有別, 二者須可由ok分辨; 訊息為固定詞彙, 含批次索引而不回顯值
                         //註: 此處不可直接return, 否則會跳過本回調末尾之error事件發出
                         rest = {
                             n: 0,
                             nDeleted: 0,
                             ok: 0,
-                            err: `can not delete by invalid id[${id}]`,
+                            err: `invalid id: ${msgPk} at [data[${k}].id]`,
                         }
                     }
                     else {
@@ -1217,10 +1325,195 @@ function WOrmLmdb(opt = {}) {
         return res
     }
 
+    //pmBackups, 進行中之備份(各元素為恆不reject之Promise), 供close()等候: lmdb之備份(mdb_env_copy)於原生執行緒內讀取環境,
+    //其進行中關閉環境將使行程段錯誤(實測lmdb-js 3.5.6於Windows, 離開碼139), 故close()須待其結束
+    let pmBackups = new Set()
+
+    //nBackup, 備份序號(暫存子資料夾命名用)
+    let nBackup = 0
+
+    /**
+     * 一致性備份(w-orm-lmdb專屬擴充, 系列其他後端無對應函數)
+     *
+     * 以LMDB之環境複製(mdb_env_copy, lmdb-js之backup)產生本資料表之備份: 複製於讀交易下進行，所得為某一提交點之完整快照，
+     * 本程序或其他程序同時寫入不致產生撕裂(直接複製或壓縮data.mdb可能讀到寫入中之頁面而不一致)，亦不阻擋寫入。
+     * 快照含呼叫前已await完成之寫入；呼叫當下進行中而未完成之寫入不保證含入。備份進行期間環境保有一個讀交易，期間被覆寫之頁面不被回收，資料庫檔可能暫時增大。
+     *
+     * 目標fpTar為資料夾：不存在時(含其上層)自動建立；已存在時須為空資料夾，否則整批reject而不寫入任何東西(不覆蓋、不合併)；
+     * 不得為本資料表自身之資料夾或其內(以實體路徑比對，經符號連結或連接點之別名亦同)。完成後目標內只有data.mdb(不含lock.mdb)，其為完整之LMDB資料庫檔，
+     * 還原法為將data.mdb置於資料表資料夾(url/db/cl)內以WOrmLmdb開啟，或直接以lmdb開啟該目標資料夾。
+     * 備份先寫於目標內之暫存子資料夾，完成後再確認目標內除該暫存夾外別無他物(備份期間他處於目標內建立東西者整批reject且不動該東西)，才以改名將data.mdb移入目標、再刪暫存子資料夾，故目標內出現data.mdb即表示複製已完成；
+     * 失敗時移除暫存子資料夾，並自目標向上逐層移除本次所建立之資料夾(僅限空資料夾，他處於其內建立之內容不刪)，已存在之空目標資料夾原樣保留。
+     *
+     * fpTar須為非空字串且良構(不含孤立代理字元與NUL，與系列字串良構規則一致)，否則整批reject，訊息為invalid fpTar: 原因(原因同主鍵：not a string、string is empty、
+     * string contains NUL、string contains lone surrogate)。已關閉之實例整批reject。錯誤皆於reject之前發出一次error事件(mode為'backup'，data為null以不回顯路徑)，不發出change事件(不異動資料)。
+     * 備份進行中呼叫close()會等候備份結束後才關閉環境，期間實例已視為已關閉而拒絕新操作。
+     *
+     * 註: 以另一程序備份時，於該程序以同一url、db、cl建構實例後呼叫本函數即可(讀取可由任意多個程序進行)；建構不存在之資料表會建立空環境，請只對既有資料表備份。
+     *
+     * @memberOf WOrmLmdb
+     * @param {String} fpTar 輸入備份目標資料夾路徑字串
+     * @param {Object} [option={}] 輸入設定物件，預設{}
+     * @param {Boolean} [option.compact=true] 輸入是否於備份時壓實(較慢但檔案較小)，預設true；僅布林值生效，其餘值視同預設
+     * @returns {Promise} 回傳Promise，resolve回傳{ok,fpData,size,compact}，fpData為產出之data.mdb絕對路徑，size為其位元組數；reject回傳錯誤訊息
+     */
+    async function backup(fpTar, option = {}) {
+
+        //check client, 已關閉(含關閉進行中)為終態, 於任何檢查與寫入之前先行攔下
+        if (isClosed()) {
+            return procClosed('backup', null)
+        }
+
+        //bad, 檢核之錯誤(訊息已完整, 不再加前綴)
+        let bad = (msg) => {
+            let err = new Error(msg)
+            err.isBad = true
+            return err
+        }
+
+        //core
+        let core = async() => {
+
+            //compact
+            let compact = get(option, 'compact')
+            if (!isbol(compact)) {
+                compact = true
+            }
+
+            //check fpTar, 非空字串且良構(含NUL)
+            let r = fpTar === '' ? 'string is empty' : chkOrmStr(fpTar)
+            if (r !== null) {
+                throw bad(`invalid fpTar: ${r}`)
+            }
+
+            //realOf, 取路徑之實體路徑(符號連結與連接點解開): 已存在之最深上層以realpath解開, 其下尚未存在之各層原樣接回; 解開失敗則用原路徑
+            let realOf = (p) => {
+                try {
+                    let rest = []
+                    let cur = p
+                    while (!fs.existsSync(cur)) {
+                        let up = path.dirname(cur)
+                        if (up === cur) {
+                            break
+                        }
+                        rest.unshift(path.basename(cur))
+                        cur = up
+                    }
+                    return path.join(fs.realpathSync(cur), ...rest)
+                }
+                catch (err) {
+                    return p
+                }
+            }
+
+            //dir, 目標之絕對路徑; 不得為本資料表自身之資料夾或其內(以實體路徑比對, 經符號連結或連接點之別名亦同)
+            let dir = path.resolve(fpTar)
+            let rel = path.relative(realOf(path.resolve(storage)), realOf(dir))
+            if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
+                throw bad('can not backup by target inside the source table folder')
+            }
+
+            //check target, 已存在者須為空資料夾(不覆蓋、不合併)
+            let st = fs.statSync(dir, { throwIfNoEntry: false })
+            if (st !== undefined) {
+                if (!st.isDirectory()) {
+                    throw bad('can not backup by target which is not a folder')
+                }
+                if (fs.readdirSync(dir).length > 0) {
+                    throw bad('can not backup by target folder which is not empty')
+                }
+            }
+
+            //created, 本次所建立之最上層資料夾(失敗時自目標向上逐層移除空資料夾至此為止), 目標已存在則為undefined
+            let created
+            let tmp = null
+            try {
+
+                //mkdir, lmdb-js之backup不建立目標資料夾(僅建其上層), 目標須先存在
+                created = fs.mkdirSync(dir, { recursive: true })
+
+                //tmp, 先備份於目標內之暫存子資料夾, 完成後改名移入, 目標內之data.mdb因而恆為完整;
+                //名稱含序號與亂數, 令同一程序同一毫秒對同一目標之並行備份不致撞名; 建立成功後才記入tmp,
+                //使失敗清理只移除本次建立者(撞名時不誤刪他人之暫存夾)
+                nBackup++
+                let dirTmp = path.join(dir, `.backup-${process.pid}-${Date.now()}-${nBackup}-${Math.random().toString(36).slice(2, 8)}`)
+                fs.mkdirSync(dirTmp)
+                tmp = dirTmp
+                await client.backup(tmp, compact)
+
+                //move, 目標內除本次暫存夾外不得有任何東西(備份期間他處於目標內建立之檔案或另一備份之成果亦視為非空): 不覆蓋、不合併
+                if (fs.readdirSync(dir).some((v) => v !== path.basename(tmp))) {
+                    throw bad('can not backup by target folder which is not empty')
+                }
+                let fpData = path.join(dir, 'data.mdb')
+                fs.renameSync(path.join(tmp, 'data.mdb'), fpData)
+                fs.rmSync(tmp, { recursive: true, force: true })
+                tmp = null
+
+                return {
+                    ok: 1,
+                    fpData,
+                    size: fs.statSync(fpData).size,
+                    compact,
+                }
+            }
+            catch (err) {
+
+                //clean, 暫存子資料夾(本次所建立)與本次所建立之資料夾; 已存在之空目標資料夾原樣保留;
+                //資料夾自目標向上逐層以非遞迴之rmdir移除至created為止, 遇非空(他處已於其內建立東西)即停止, 不刪非本次建立之內容
+                try {
+                    if (tmp !== null) {
+                        fs.rmSync(tmp, { recursive: true, force: true })
+                    }
+                    if (created !== undefined) {
+                        //Windows之fs.mkdirSync(recursive)回傳帶長路徑前綴\\?\之路徑, 去除後方可與dir逐層比對
+                        let top = path.resolve(created.replace(/^\\\\\?\\/, ''))
+                        for (let p = dir; p.length >= top.length; p = path.dirname(p)) {
+                            fs.rmdirSync(p)
+                            if (p === top) {
+                                break
+                            }
+                        }
+                    }
+                }
+                catch (errClean) {
+                    //清理失敗(含遇非空資料夾而停止)不可掩蓋原錯誤
+                }
+
+                throw err
+            }
+        }
+
+        //pm, 以pmBackups登記(同步執行至首個await前, 故close()於呼叫後立即執行亦能見到)
+        let pm = core()
+        let pmSettled = pm.then(() => {}, () => {})
+        pmBackups.add(pmSettled)
+        pmSettled.then(() => {
+            pmBackups.delete(pmSettled)
+        })
+
+        try {
+            return await pm
+        }
+        catch (err) {
+
+            //emit, 整批性錯誤須於reject之前發出; 檢核之錯誤訊息已完整, 其餘(檔案系統或lmdb之錯誤)加前綴
+            let msg = get(err, 'isBad') === true ? err.message : `can not backup, ${getErrMsg(err)}`
+            emitError('backup', null, msg)
+
+            return Promise.reject(new Error(msg))
+        }
+    }
+
     //close, 關閉內部LMDB env並釋放檔案鎖, close後該實例即報廢, 須重新new WOrmLmdb,
     //呼叫close()之後(含其未完成之關閉進行中)再呼叫任何操作函數將立即reject(訊息明示closed), 不與[查無資料]同形;
-    //操作進行中被close者, 其後續步驟亦以整批性錯誤reject; 重複呼叫close()無妨, lmdb於關閉中與已關閉時皆正常回傳
+    //操作進行中被close者, 其後續步驟亦以整批性錯誤reject; 重複呼叫close()無妨, lmdb於關閉中與已關閉時皆正常回傳;
+    //備份進行中者(pmBackups)先令實例視為已關閉(closing)再等候其結束, 才關閉環境(進行中關閉環境將使行程段錯誤)
     let close = async () => {
+        if (pmBackups.size > 0) {
+            closing = true
+            await Promise.all([...pmBackups])
+        }
         if (client && client.status !== 'closed') {
             await client.close() //lmdb root database之close(), 回傳Promise
         }
@@ -1234,6 +1527,7 @@ function WOrmLmdb(opt = {}) {
     ee.save = save
     ee.del = del
     ee.delAll = delAll
+    ee.backup = backup
     ee.close = close
 
     return ee
