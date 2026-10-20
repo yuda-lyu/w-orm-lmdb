@@ -115,6 +115,8 @@ option 對回傳形式之切換須為**靜態**：呼叫點寫死取值即知回
 
 `del` **不受 `autoGenPk` 影響**，於任一設定下皆不補值——未帶有效主鍵者視為該筆無法處理，回 `ok: 0` 並附 `err`，且不得將無效主鍵送進查詢條件（部分後端會把 `undefined` 轉為 `null` 而誤中其他資料）。`del` 之未帶有效主鍵屬該筆問題而非整批性錯誤，因刪除係逐筆比對既有資料，一筆缺主鍵不影響其餘筆之處理。
 
+**如實存放性檢核不隨 `autoGenPk` 改變**（2026-10-21，第 66 項）：上文「不因主鍵不合預期而額外檢查」指格式偏好；套件自身無法如實保存之主鍵（超過後端鍵長上限、含孤立代理字元或 NUL，見 T12）不屬格式偏好，`autoGenPk` 任一設定皆檢核。主鍵含孤立代理或 NUL 時，`save`、`del` 該筆 `ok: 0` 附 `err`，`insert`、`insertBulk` 整批 `reject`，`selectByPk` 回 `null`；「未帶有效主鍵（未給、型別不符）」仍依上文為整批性錯誤。
+
 ### T7 原子性要求
 
 以下兩項判斷與寫入，必須由資料庫在**單一原子操作**內完成，不得以「先讀出、再依讀到的結果決定寫入」的方式實作：
@@ -297,6 +299,17 @@ err     字串
 - **各套件測試**（建議檔名 `unit-find-whitelist.test.mjs`）逐案對公開 `select`／`delAll` 執行，每案前以 `seed()` 重建：`ALL`／`OK` 案 `select` 命中集合等於該族之 `ids`，`delAll` 刪除之集合等於 `select` 命中之集合且 `n` 與 `nDeleted` 為實際刪除筆數；`REJ` 案兩函數皆 `reject`、訊息以 `invalid find: ` 開頭、資料不變、`error` 事件於 `reject` 前恰一次且訊息相同、不發 `change`；`schema` 旗標案 SQL 族得 `reject` 或回 `ids.sql`，NoSQL 族須回 `ids.mongo`；`need.maxIn` 大於該後端 `$in` 上限者應 `reject`。另須涵蓋：以會翻轉讀值之 `Proxy` 驗證「檢查之值即使用之值」、已關閉先於檢核、檢核先於讀取（以無法讀取之資料驗證）、`useCache` 已填入時壞條件仍 `reject`、呼叫端條件不被改動；有序列化佇列者驗證檢核置於佇列之外；依各後端之轉譯層再加專屬斷言。
 - **已知缺口**（2026-10-17 三位外審之實測，屬共用檢核本身，歸 wsemi 處置，非各後端接線問題）：① `cvOrmFind` 對「原型被改為 null 或 `Object.prototype` 之內建物件（`Map`、`Set` 等）」僅在頂層且無自有鍵時拒收；帶自有可列舉鍵者、置於 `$or`／`$and` 內者，以及被 `Proxy` 包住者（被當成空條件，`delAll` 刪光全表）仍被接受，與 T11.2 不符；② 存取器、不可列舉描述子或描述子 trap 出錯時，錯誤路徑缺該欄名（`at [find]` 而非 `at [find.g]`）。案例表須補對應案例（內建品牌 × 空／非空自有鍵 × 頂層／邏輯子文件，及 `constructor` 等原型成員欄名交叉 null 語意）。
 - 白名單之收緊屬**破壞性變更**：不設過渡期（fail-closed），各套件 README 須有「條件（find）白名單」與「破壞性變更」兩節；`delAll` 之 JSDoc 須載明使用須知（不給條件即刪除全部、傳非條件物件會 `reject`、條件僅支援白名單且白名單外會 `reject`、與 `select` 共用同一檢核、`undefined` 與空 `$nin` 會 `reject`、語意差異與可攜寫法、須審慎使用非必要不用）。
+
+### T12 寫入側字串良構（2026-10-21，第 66 項）
+
+UTF-8／BSON 儲存之後端會把孤立代理字元（UTF-16 代理對被拆開後只剩一半）改寫為 U+FFFD，使不同主鍵寫成同一鍵、文件鍵名撞鍵、寫入值與讀回值不同。規則全文見主控規格 `opensrcOper/dspec/w-orm系列條件語法支援盤點.md`〈一之三〉9.，摘要：
+
+- **範圍與規則**：主鍵（孤立代理或 NUL 皆拒）；寫入資料之字串值與鍵名，含巢狀物件、陣列元素及 `chkOrmData` 走訪之 Map／Set 等（孤立代理拒，值之 NUL 不拒）；儲存位址名稱 `opt.url`、`opt.db`、`opt.cl` 及路徑承載者（孤立代理 → 建構時 throw）。U+FFFD 本身與正常代理對（emoji、CJK 擴充 B 區以後之字）照常接受。能保真之後端（lowdb、level、mssql）亦一律拒收（系列一致）。
+- **處置**：同 T6 末段（`insert`／`insertBulk` 整批 `reject`、`save`／`del` 該筆 `ok: 0`、`selectByPk` 回 `null`）；檢核作用於呼叫當下之複本且只用該複本，先於 `isClosed` 以外之任何讀取、連線、寫入、刪除。
+- **訊息**：固定詞彙、不回顯值：`invalid id: <原因> at [data[<k>].id]`、`invalid data: <原因> at [data[<k>].<path>]`、`invalid opt.<名>: <原因>`；原因為 `not a string`、`string is empty`、`string contains NUL`、`string contains lone surrogate`。
+- **單一擁有者**：wsemi（1.9.24 起）之 `chkOrmStr`、`chkOrmData`；契約案例表 `wsemi/src/_cvOrmStrCases.mjs`，各套件測試逐案對公開 API 執行（建議檔名 `unit-wellformed.test.mjs` 或 `api-wellformed.test.mjs`）。
+- **設計（只文件化）**：w-orm-reladb 之 mssql 方言與 w-orm-mdb（Jet）之字串相等由資料庫排序規則決定，良構字串亦可能相等（`'a'`、`'a'+emoji`、`'a'+U+FFFD`），與 T11.4 之大小寫差異同族；精確比對須以二進位排序規則建表。
+- **既有資料不遷移**：各 README 載明檢出法與清除路徑。
 
 ---
 
