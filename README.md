@@ -154,6 +154,32 @@ Conditions that used to be accepted, or silently let through, are now rejected. 
 - Now rejected, previously let through: a `find` that is not a condition object (`null`, `[]`, `'x'`, `123`, `true`, a function, `Date`, `Map`, `Set`, an object with only symbol keys, an object whose condition sits on its prototype). `select(find)` used to return every row and `delAll(find)` used to delete every row. A class instance with own keys was already refused by `mingo` (`query criteria must be an object`) and now gets the `invalid find` message too. Likewise `undefined` values (`{ age: undefined }` and `$eq: undefined` used to match rows where the field is null or missing; `$in: [undefined]` matched nothing; a hole in a sparse array was treated as a missing field), `NaN`, `Infinity`, function and `Symbol` values, `$nin: []`, `$and: []`, `$or: []`, `$and: [{}]`, `$or: [{}]`, `{ age: {} }`, field names outside the grammar, getters and non-enumerable keys, nesting deeper than 32 and `$in` beyond 10000 items.
 - The error message is `invalid find: <reason> at [<path>]`; a `find` that threw an error of `mingo` before now gets this message instead.
 
+### Diagnostic output: `logDetail` and `funLog` (診斷輸出)
+
+The only diagnostic line this package writes is the one printed when a subscriber of the `change` or `error` event throws (the error is caught and never affects the operation). By default it prints a fixed label and a summary that carries no personal data:
+
+```alias
+change handler threw { mode: 'insert', errType: 'Error' }
+error handler threw { mode: 'del', errType: 'TypeError', errCode: 'ERR_X' }
+```
+
+`mode` is the operation, `errType` is the constructor name of the thrown value (`string`, `object`, `null`, ... for values that are not an `Error`), and `errCode` is the `code` of a thrown `Error` (never of another kind of object, such as a data row thrown by mistake) if it looks like a machine code: `ENOENT`, `EAI_AGAIN`, `E2BIG`, `ERR_xxx`, `MDB_xxx`, or an integer from -99999 to 99999. The message of the thrown error, ids, data values and user identifiers are not printed by default. The option names and semantics are the same as in `w-serv-orm` and `w-orm-reladb`:
+
+- `logDetail: true` restores the previous output: one `console.log` of the value the subscriber threw (no label). The value is printed as a masked copy (see `detail` below), so its message and stack are there, but the class of an `Error` subclass is reduced to its name, and `Map`, `Set`, binary data and anything deeper than 6 levels become marker strings.
+- `funLog: (label, safe, detail) => {}` replaces `console`: the diagnostic goes only to this function and nothing is written to `console`, even together with `logDetail`. `safe` is the summary above; `detail` is a masked copy of the thrown value, meant for your own redaction or forwarding (plain-object and `Error` copy, original untouched; wrapper objects such as `new String(...)` count as their primitive; functions, binary data, `Map`, `Set`, `RegExp`, `Promise` and accessors become marker strings; bounded to depth 6 and 2000 nodes). An error thrown by `funLog`, or a promise it returns that rejects, is swallowed.
+- Both options are read once when the instance is created. A `logDetail` that is not `true` and a `funLog` that is not a function are ignored (default output), the same as the other options of the constructor.
+- Neither option changes the resolved or rejected value of any operation, nor the payload or timing of any event.
+
+The storage location (`url`, `url/db`, `url/db/cl`, their normalized and absolute paths in the usual escaped forms and with the drive letter in either case, and the credentials of a `scheme://user:pass@host` form) is never printed: in every channel (default, `logDetail` and `funLog`) it is replaced by `***`. One exception is deliberate: a form shorter than 4 characters (for example `url: 'db'`) is not masked on its own, because that would blank unrelated text; the full storage path and the absolute path are still masked. The same holds for the error thrown by the constructor when LMDB cannot open the storage folder. Such an error used to echo the resolved path, so a `url` that carried credentials reached whatever logged the error; now the message keeps its prefix and only the path is replaced, for example `ENOENT: no such file or directory, mkdir '***'`. The class (`Error`, or `TypeError` for a `url` with a NUL character), `code`, `errno` and `syscall` are unchanged, `path` is `'***'`, and properties other than these (such as `cause`) are not carried over.
+
+Not covered by these options: what the underlying `lmdb-js` driver writes itself. Its JavaScript layer calls `console.error` or `console.warn` on commit failures, an invalid read transaction and the like; its native layer writes straight to `stderr` (not through `console`). Almost all of these lines are fixed texts, flags or addresses. The exception is a record that cannot be decompressed (a damaged database file, or a record written by another writer whose first byte looks like a compression marker): the native layer then prints `Failed to decompress data ... bytes:` followed by the byte values of that record, which can include the row's contents. Neither `logDetail` nor `funLog` can capture or mask this; treat the `stderr` of a process that reads a damaged database as sensitive.
+
+### Breaking changes (破壞性變更: diagnostic output)
+
+- Changed: a throwing `change` or `error` subscriber used to print `console.log(<the thrown value>)`, that is its message, stack and whatever data the error carried. It now prints only `change handler threw { mode, errType[, errCode] }` or `error handler threw { mode, errType[, errCode] }`. To get the old line back pass `logDetail: true` (the storage location in it is masked as `***`), or take the full detail from `funLog`.
+- Changed: the error thrown by the constructor when `open()` fails no longer contains the storage path (`***` instead); prefix, class, `code`, `errno` and `syscall` are unchanged; `cause` and other extra properties are not carried over.
+- Unchanged: every resolved or rejected value, every event payload and the timing of events.
+
 ## Documentation
 To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-orm-lmdb/WOrm.html).
 

@@ -1,0 +1,1582 @@
+{
+  "head": "dfa8bb7",
+  "plain": {
+    "out": [
+      {
+        "ok": {
+          "n": 0,
+          "nDeleted": 0,
+          "ok": 1
+        }
+      },
+      {
+        "ok": {
+          "n": 2,
+          "nInserted": 2,
+          "ok": 1
+        }
+      },
+      {
+        "ok": {
+          "n": 1,
+          "nInserted": 0,
+          "ok": 1
+        }
+      },
+      {
+        "err": "can not insertBulk by existed id[a1]",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "ok": {
+          "n": 2,
+          "nInserted": 2,
+          "ok": 1
+        }
+      },
+      {
+        "ok": [
+          {
+            "n": 1,
+            "nInserted": 1,
+            "ok": 1
+          }
+        ]
+      },
+      {
+        "ok": [
+          {
+            "n": 1,
+            "nInserted": 0,
+            "nModified": 1,
+            "ok": 1
+          },
+          {
+            "n": 1,
+            "nInserted": 1,
+            "nModified": 0,
+            "ok": 1
+          }
+        ]
+      },
+      {
+        "ok": [
+          {
+            "n": 1,
+            "nInserted": 0,
+            "nModified": 1,
+            "ok": 1
+          }
+        ]
+      },
+      {
+        "ok": [
+          {
+            "n": 0,
+            "nInserted": 0,
+            "nModified": 0,
+            "ok": 1
+          }
+        ]
+      },
+      {
+        "ok": [
+          {
+            "n": 1,
+            "nInserted": 0,
+            "nModified": 0,
+            "ok": 0,
+            "err": "invalid id: string contains lone surrogate at [data[0].id]"
+          },
+          {
+            "n": 1,
+            "nInserted": 1,
+            "nModified": 0,
+            "ok": 1
+          }
+        ]
+      },
+      {
+        "ok": [
+          {
+            "id": "a1",
+            "other": 1
+          }
+        ]
+      },
+      {
+        "ok": [
+          {
+            "id": "a1",
+            "other": 1
+          },
+          {
+            "id": "a2",
+            "name": "n2",
+            "value": 2
+          },
+          {
+            "id": "a3",
+            "name": "n3"
+          },
+          {
+            "id": "b1",
+            "name": "bulk1"
+          },
+          {
+            "id": "b2",
+            "name": "bulk2"
+          },
+          {
+            "id": "r1",
+            "name": "rl"
+          },
+          {
+            "id": "s1",
+            "name": "ok"
+          }
+        ]
+      },
+      {
+        "ok": {
+          "id": "a2",
+          "name": "n2",
+          "value": 2
+        }
+      },
+      {
+        "ok": null
+      },
+      {
+        "err": "invalid find: unsupported operator [$foo] at [find.$foo]",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "err": "invalid find: unsupported operator [$foo] at [find.$foo]",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "ok": [
+          {
+            "n": 1,
+            "nDeleted": 1,
+            "ok": 1
+          },
+          {
+            "n": 0,
+            "nDeleted": 0,
+            "ok": 0,
+            "err": "invalid id: not a string at [data[1].id]"
+          }
+        ]
+      },
+      {
+        "ok": null
+      },
+      {
+        "err": "can not insert by data[0] without valid id when autoGenPk is false",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "err": "invalid id: string contains lone surrogate at [data[0].id]",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "err": "invalid fpTar: string is empty",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "ok": {
+          "n": 1,
+          "nInserted": 1,
+          "ok": 1
+        }
+      },
+      {
+        "ok": [
+          {
+            "id": "c1",
+            "name": "cache1"
+          }
+        ]
+      },
+      {
+        "ok": {
+          "n": 1,
+          "nInserted": 1,
+          "ok": 1
+        }
+      },
+      {
+        "ok": [
+          {
+            "id": "c1",
+            "name": "cache1"
+          },
+          {
+            "id": "c2",
+            "name": "cache2"
+          }
+        ]
+      },
+      {
+        "ok": {
+          "n": 6,
+          "nDeleted": 6,
+          "ok": 1
+        }
+      },
+      {
+        "err": "can not insert by closed client, instance can not be used after close()",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "err": "can not select by closed client, instance can not be used after close()",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "err": "can not backup by closed client, instance can not be used after close()",
+        "isError": true,
+        "ctor": "Error"
+      }
+    ],
+    "evs": [
+      [
+        "change",
+        "delAll",
+        null,
+        {
+          "n": 0,
+          "nDeleted": 0,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "a1",
+            "name": "n1",
+            "value": 1
+          },
+          {
+            "id": "a2",
+            "name": "n2",
+            "value": 2
+          }
+        ],
+        {
+          "n": 2,
+          "nInserted": 2,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "a1",
+            "name": "dup"
+          }
+        ],
+        {
+          "n": 1,
+          "nInserted": 0,
+          "ok": 1
+        }
+      ],
+      [
+        "error",
+        "insertBulk",
+        [
+          {
+            "id": "a1",
+            "name": "dup"
+          }
+        ],
+        "can not insertBulk by existed id[a1]"
+      ],
+      [
+        "change",
+        "insertBulk",
+        [
+          {
+            "id": "b1",
+            "name": "bulk1"
+          },
+          {
+            "id": "b2",
+            "name": "bulk2"
+          }
+        ],
+        {
+          "n": 2,
+          "nInserted": 2,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "r1",
+            "name": "rl"
+          }
+        ],
+        [
+          {
+            "n": 1,
+            "nInserted": 1,
+            "ok": 1
+          }
+        ]
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "a3",
+            "name": "n3"
+          }
+        ],
+        {
+          "n": 1,
+          "nInserted": 1,
+          "nModified": 0,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "save",
+        [
+          {
+            "id": "a1",
+            "name": "n1x"
+          },
+          {
+            "id": "a3",
+            "name": "n3"
+          }
+        ],
+        [
+          {
+            "n": 1,
+            "nInserted": 0,
+            "nModified": 1,
+            "ok": 1
+          },
+          {
+            "n": 1,
+            "nInserted": 1,
+            "nModified": 0,
+            "ok": 1
+          }
+        ]
+      ],
+      [
+        "change",
+        "save",
+        [
+          {
+            "id": "a1",
+            "other": 1
+          }
+        ],
+        [
+          {
+            "n": 1,
+            "nInserted": 0,
+            "nModified": 1,
+            "ok": 1
+          }
+        ]
+      ],
+      [
+        "change",
+        "save",
+        [
+          {
+            "id": "zz",
+            "name": "noauto"
+          }
+        ],
+        [
+          {
+            "n": 0,
+            "nInserted": 0,
+            "nModified": 0,
+            "ok": 1
+          }
+        ]
+      ],
+      [
+        "error",
+        "save",
+        [
+          {
+            "id": "\ud800",
+            "name": "bad"
+          }
+        ],
+        "invalid id: string contains lone surrogate at [data[0].id]"
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "s1",
+            "name": "ok"
+          }
+        ],
+        {
+          "n": 1,
+          "nInserted": 1,
+          "nModified": 0,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "save",
+        [
+          {
+            "id": "\ud800",
+            "name": "bad"
+          },
+          {
+            "id": "s1",
+            "name": "ok"
+          }
+        ],
+        [
+          {
+            "n": 1,
+            "nInserted": 0,
+            "nModified": 0,
+            "ok": 0,
+            "err": "invalid id: string contains lone surrogate at [data[0].id]"
+          },
+          {
+            "n": 1,
+            "nInserted": 1,
+            "nModified": 0,
+            "ok": 1
+          }
+        ]
+      ],
+      [
+        "error",
+        "select",
+        null,
+        "invalid find: unsupported operator [$foo] at [find.$foo]"
+      ],
+      [
+        "error",
+        "delAll",
+        null,
+        "invalid find: unsupported operator [$foo] at [find.$foo]"
+      ],
+      [
+        "error",
+        "del",
+        [
+          {
+            "name": "no-id"
+          }
+        ],
+        "invalid id: not a string at [data[1].id]"
+      ],
+      [
+        "change",
+        "del",
+        [
+          {
+            "id": "a2"
+          },
+          {
+            "name": "no-id"
+          }
+        ],
+        [
+          {
+            "n": 1,
+            "nDeleted": 1,
+            "ok": 1
+          },
+          {
+            "n": 0,
+            "nDeleted": 0,
+            "ok": 0,
+            "err": "invalid id: not a string at [data[1].id]"
+          }
+        ]
+      ],
+      [
+        "error",
+        "insert",
+        [
+          {
+            "name": "no-id"
+          }
+        ],
+        "can not insert by data[0] without valid id when autoGenPk is false"
+      ],
+      [
+        "error",
+        "insert",
+        [
+          {
+            "id": "\ud800",
+            "name": "bad"
+          }
+        ],
+        "invalid id: string contains lone surrogate at [data[0].id]"
+      ],
+      [
+        "error",
+        "backup",
+        null,
+        "invalid fpTar: string is empty"
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "c1",
+            "name": "cache1"
+          }
+        ],
+        {
+          "n": 1,
+          "nInserted": 1,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "c2",
+            "name": "cache2"
+          }
+        ],
+        {
+          "n": 1,
+          "nInserted": 1,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "delAll",
+        null,
+        {
+          "n": 6,
+          "nDeleted": 6,
+          "ok": 1
+        }
+      ],
+      [
+        "error",
+        "insert",
+        {
+          "id": "late"
+        },
+        "can not insert by closed client, instance can not be used after close()"
+      ],
+      [
+        "error",
+        "select",
+        null,
+        "can not select by closed client, instance can not be used after close()"
+      ],
+      [
+        "error",
+        "backup",
+        null,
+        "can not backup by closed client, instance can not be used after close()"
+      ]
+    ],
+    "tl": [
+      "ev:a:change:delAll",
+      "settle:0:ok",
+      "ev:a:change:insert",
+      "settle:1:ok",
+      "ev:a:change:insert",
+      "settle:2:ok",
+      "ev:a:error:insertBulk",
+      "settle:3:err",
+      "ev:a:change:insertBulk",
+      "settle:4:ok",
+      "ev:a:change:insert",
+      "settle:5:ok",
+      "ev:a:change:insert",
+      "ev:a:change:save",
+      "settle:6:ok",
+      "ev:a:change:save",
+      "settle:7:ok",
+      "ev:a:change:save",
+      "settle:8:ok",
+      "ev:a:error:save",
+      "ev:a:change:insert",
+      "ev:a:change:save",
+      "settle:9:ok",
+      "settle:10:ok",
+      "settle:11:ok",
+      "settle:12:ok",
+      "settle:13:ok",
+      "ev:a:error:select",
+      "settle:14:err",
+      "ev:a:error:delAll",
+      "settle:15:err",
+      "ev:a:error:del",
+      "ev:a:change:del",
+      "settle:16:ok",
+      "settle:17:ok",
+      "ev:b:error:insert",
+      "settle:18:err",
+      "ev:a:error:insert",
+      "settle:19:err",
+      "ev:a:error:backup",
+      "settle:20:err",
+      "ev:c:change:insert",
+      "settle:21:ok",
+      "settle:22:ok",
+      "ev:c:change:insert",
+      "settle:23:ok",
+      "settle:24:ok",
+      "ev:a:change:delAll",
+      "settle:25:ok",
+      "ev:a:error:insert",
+      "settle:26:err",
+      "ev:a:error:select",
+      "settle:27:err",
+      "ev:a:error:backup",
+      "settle:28:err"
+    ],
+    "calls": []
+  },
+  "bad": {
+    "out": [
+      {
+        "ok": {
+          "n": 0,
+          "nDeleted": 0,
+          "ok": 1
+        }
+      },
+      {
+        "ok": {
+          "n": 2,
+          "nInserted": 2,
+          "ok": 1
+        }
+      },
+      {
+        "ok": {
+          "n": 1,
+          "nInserted": 0,
+          "ok": 1
+        }
+      },
+      {
+        "err": "can not insertBulk by existed id[a1]",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "ok": {
+          "n": 2,
+          "nInserted": 2,
+          "ok": 1
+        }
+      },
+      {
+        "ok": [
+          {
+            "n": 1,
+            "nInserted": 1,
+            "ok": 1
+          }
+        ]
+      },
+      {
+        "ok": [
+          {
+            "n": 1,
+            "nInserted": 0,
+            "nModified": 1,
+            "ok": 1
+          },
+          {
+            "n": 1,
+            "nInserted": 1,
+            "nModified": 0,
+            "ok": 1
+          }
+        ]
+      },
+      {
+        "ok": [
+          {
+            "n": 1,
+            "nInserted": 0,
+            "nModified": 1,
+            "ok": 1
+          }
+        ]
+      },
+      {
+        "ok": [
+          {
+            "n": 0,
+            "nInserted": 0,
+            "nModified": 0,
+            "ok": 1
+          }
+        ]
+      },
+      {
+        "ok": [
+          {
+            "n": 1,
+            "nInserted": 0,
+            "nModified": 0,
+            "ok": 0,
+            "err": "invalid id: string contains lone surrogate at [data[0].id]"
+          },
+          {
+            "n": 1,
+            "nInserted": 1,
+            "nModified": 0,
+            "ok": 1
+          }
+        ]
+      },
+      {
+        "ok": [
+          {
+            "id": "a1",
+            "other": 1
+          }
+        ]
+      },
+      {
+        "ok": [
+          {
+            "id": "a1",
+            "other": 1
+          },
+          {
+            "id": "a2",
+            "name": "n2",
+            "value": 2
+          },
+          {
+            "id": "a3",
+            "name": "n3"
+          },
+          {
+            "id": "b1",
+            "name": "bulk1"
+          },
+          {
+            "id": "b2",
+            "name": "bulk2"
+          },
+          {
+            "id": "r1",
+            "name": "rl"
+          },
+          {
+            "id": "s1",
+            "name": "ok"
+          }
+        ]
+      },
+      {
+        "ok": {
+          "id": "a2",
+          "name": "n2",
+          "value": 2
+        }
+      },
+      {
+        "ok": null
+      },
+      {
+        "err": "invalid find: unsupported operator [$foo] at [find.$foo]",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "err": "invalid find: unsupported operator [$foo] at [find.$foo]",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "ok": [
+          {
+            "n": 1,
+            "nDeleted": 1,
+            "ok": 1
+          },
+          {
+            "n": 0,
+            "nDeleted": 0,
+            "ok": 0,
+            "err": "invalid id: not a string at [data[1].id]"
+          }
+        ]
+      },
+      {
+        "ok": null
+      },
+      {
+        "err": "can not insert by data[0] without valid id when autoGenPk is false",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "err": "invalid id: string contains lone surrogate at [data[0].id]",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "err": "invalid fpTar: string is empty",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "ok": {
+          "n": 1,
+          "nInserted": 1,
+          "ok": 1
+        }
+      },
+      {
+        "ok": [
+          {
+            "id": "c1",
+            "name": "cache1"
+          }
+        ]
+      },
+      {
+        "ok": {
+          "n": 1,
+          "nInserted": 1,
+          "ok": 1
+        }
+      },
+      {
+        "ok": [
+          {
+            "id": "c1",
+            "name": "cache1"
+          },
+          {
+            "id": "c2",
+            "name": "cache2"
+          }
+        ]
+      },
+      {
+        "ok": {
+          "n": 6,
+          "nDeleted": 6,
+          "ok": 1
+        }
+      },
+      {
+        "err": "can not insert by closed client, instance can not be used after close()",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "err": "can not select by closed client, instance can not be used after close()",
+        "isError": true,
+        "ctor": "Error"
+      },
+      {
+        "err": "can not backup by closed client, instance can not be used after close()",
+        "isError": true,
+        "ctor": "Error"
+      }
+    ],
+    "evs": [
+      [
+        "change",
+        "delAll",
+        null,
+        {
+          "n": 0,
+          "nDeleted": 0,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "a1",
+            "name": "n1",
+            "value": 1
+          },
+          {
+            "id": "a2",
+            "name": "n2",
+            "value": 2
+          }
+        ],
+        {
+          "n": 2,
+          "nInserted": 2,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "a1",
+            "name": "dup"
+          }
+        ],
+        {
+          "n": 1,
+          "nInserted": 0,
+          "ok": 1
+        }
+      ],
+      [
+        "error",
+        "insertBulk",
+        [
+          {
+            "id": "a1",
+            "name": "dup"
+          }
+        ],
+        "can not insertBulk by existed id[a1]"
+      ],
+      [
+        "change",
+        "insertBulk",
+        [
+          {
+            "id": "b1",
+            "name": "bulk1"
+          },
+          {
+            "id": "b2",
+            "name": "bulk2"
+          }
+        ],
+        {
+          "n": 2,
+          "nInserted": 2,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "r1",
+            "name": "rl"
+          }
+        ],
+        [
+          {
+            "n": 1,
+            "nInserted": 1,
+            "ok": 1
+          }
+        ]
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "a3",
+            "name": "n3"
+          }
+        ],
+        {
+          "n": 1,
+          "nInserted": 1,
+          "nModified": 0,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "save",
+        [
+          {
+            "id": "a1",
+            "name": "n1x"
+          },
+          {
+            "id": "a3",
+            "name": "n3"
+          }
+        ],
+        [
+          {
+            "n": 1,
+            "nInserted": 0,
+            "nModified": 1,
+            "ok": 1
+          },
+          {
+            "n": 1,
+            "nInserted": 1,
+            "nModified": 0,
+            "ok": 1
+          }
+        ]
+      ],
+      [
+        "change",
+        "save",
+        [
+          {
+            "id": "a1",
+            "other": 1
+          }
+        ],
+        [
+          {
+            "n": 1,
+            "nInserted": 0,
+            "nModified": 1,
+            "ok": 1
+          }
+        ]
+      ],
+      [
+        "change",
+        "save",
+        [
+          {
+            "id": "zz",
+            "name": "noauto"
+          }
+        ],
+        [
+          {
+            "n": 0,
+            "nInserted": 0,
+            "nModified": 0,
+            "ok": 1
+          }
+        ]
+      ],
+      [
+        "error",
+        "save",
+        [
+          {
+            "id": "\ud800",
+            "name": "bad"
+          }
+        ],
+        "invalid id: string contains lone surrogate at [data[0].id]"
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "s1",
+            "name": "ok"
+          }
+        ],
+        {
+          "n": 1,
+          "nInserted": 1,
+          "nModified": 0,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "save",
+        [
+          {
+            "id": "\ud800",
+            "name": "bad"
+          },
+          {
+            "id": "s1",
+            "name": "ok"
+          }
+        ],
+        [
+          {
+            "n": 1,
+            "nInserted": 0,
+            "nModified": 0,
+            "ok": 0,
+            "err": "invalid id: string contains lone surrogate at [data[0].id]"
+          },
+          {
+            "n": 1,
+            "nInserted": 1,
+            "nModified": 0,
+            "ok": 1
+          }
+        ]
+      ],
+      [
+        "error",
+        "select",
+        null,
+        "invalid find: unsupported operator [$foo] at [find.$foo]"
+      ],
+      [
+        "error",
+        "delAll",
+        null,
+        "invalid find: unsupported operator [$foo] at [find.$foo]"
+      ],
+      [
+        "error",
+        "del",
+        [
+          {
+            "name": "no-id"
+          }
+        ],
+        "invalid id: not a string at [data[1].id]"
+      ],
+      [
+        "change",
+        "del",
+        [
+          {
+            "id": "a2"
+          },
+          {
+            "name": "no-id"
+          }
+        ],
+        [
+          {
+            "n": 1,
+            "nDeleted": 1,
+            "ok": 1
+          },
+          {
+            "n": 0,
+            "nDeleted": 0,
+            "ok": 0,
+            "err": "invalid id: not a string at [data[1].id]"
+          }
+        ]
+      ],
+      [
+        "error",
+        "insert",
+        [
+          {
+            "name": "no-id"
+          }
+        ],
+        "can not insert by data[0] without valid id when autoGenPk is false"
+      ],
+      [
+        "error",
+        "insert",
+        [
+          {
+            "id": "\ud800",
+            "name": "bad"
+          }
+        ],
+        "invalid id: string contains lone surrogate at [data[0].id]"
+      ],
+      [
+        "error",
+        "backup",
+        null,
+        "invalid fpTar: string is empty"
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "c1",
+            "name": "cache1"
+          }
+        ],
+        {
+          "n": 1,
+          "nInserted": 1,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "insert",
+        [
+          {
+            "id": "c2",
+            "name": "cache2"
+          }
+        ],
+        {
+          "n": 1,
+          "nInserted": 1,
+          "ok": 1
+        }
+      ],
+      [
+        "change",
+        "delAll",
+        null,
+        {
+          "n": 6,
+          "nDeleted": 6,
+          "ok": 1
+        }
+      ],
+      [
+        "error",
+        "insert",
+        {
+          "id": "late"
+        },
+        "can not insert by closed client, instance can not be used after close()"
+      ],
+      [
+        "error",
+        "select",
+        null,
+        "can not select by closed client, instance can not be used after close()"
+      ],
+      [
+        "error",
+        "backup",
+        null,
+        "can not backup by closed client, instance can not be used after close()"
+      ]
+    ],
+    "tl": [
+      "ev:a:change:delAll",
+      "settle:0:ok",
+      "ev:a:change:insert",
+      "settle:1:ok",
+      "ev:a:change:insert",
+      "settle:2:ok",
+      "ev:a:error:insertBulk",
+      "settle:3:err",
+      "ev:a:change:insertBulk",
+      "settle:4:ok",
+      "ev:a:change:insert",
+      "settle:5:ok",
+      "ev:a:change:insert",
+      "ev:a:change:save",
+      "settle:6:ok",
+      "ev:a:change:save",
+      "settle:7:ok",
+      "ev:a:change:save",
+      "settle:8:ok",
+      "ev:a:error:save",
+      "ev:a:change:insert",
+      "ev:a:change:save",
+      "settle:9:ok",
+      "settle:10:ok",
+      "settle:11:ok",
+      "settle:12:ok",
+      "settle:13:ok",
+      "ev:a:error:select",
+      "settle:14:err",
+      "ev:a:error:delAll",
+      "settle:15:err",
+      "ev:a:error:del",
+      "ev:a:change:del",
+      "settle:16:ok",
+      "settle:17:ok",
+      "ev:b:error:insert",
+      "settle:18:err",
+      "ev:a:error:insert",
+      "settle:19:err",
+      "ev:a:error:backup",
+      "settle:20:err",
+      "ev:c:change:insert",
+      "settle:21:ok",
+      "settle:22:ok",
+      "ev:c:change:insert",
+      "settle:23:ok",
+      "settle:24:ok",
+      "ev:a:change:delAll",
+      "settle:25:ok",
+      "ev:a:error:insert",
+      "settle:26:err",
+      "ev:a:error:select",
+      "settle:27:err",
+      "ev:a:error:backup",
+      "settle:28:err"
+    ],
+    "calls": [
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      },
+      {
+        "method": "log",
+        "args": [
+          {
+            "type": "error",
+            "text": "Error: listener u-secret-001@example.com <URL>"
+          }
+        ]
+      }
+    ]
+  }
+}
