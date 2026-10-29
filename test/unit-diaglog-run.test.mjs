@@ -7,10 +7,10 @@ import WOrm from '../src/WOrmLmdb.mjs'
 import { scenario, ID } from './tools/diagScenario.mjs'
 
 
-//rulebook R-DIAG-01: 診斷輸出(實例層, 開真實LMDB)
-//對應: 預設時console只出現標籤與不含個資之摘要(-1)、logDetail還原舊版輸出且儲存位置遮罩(-2)、funLog收完整細節(-3)、輸出不得影響操作(-4)、
+//rulebook R-DIAG-01: 診斷輸出(實例層, 開真實LMDB; 遮罩與出口為wsemi之getDiag, 本檔為接線測試)
+//對應: 預設時console只出現標籤與不含個資之摘要(-1)、logDetail輸出標籤加遮罩後之細節且儲存位置遮罩(-2)、funLog收完整細節(-3)、輸出不得影響操作(-4)、
 //回傳契約不變(-6: 各操作之resolve與reject內容、事件payload與時機, 對照修改前HEAD dfa8bb7產生之固定預期值test/tools/diagGolden.json)
-//本檔不匯入getDiag.mjs, 可直接對修改前之程式執行(修前紅證據)
+//本檔只經WOrmLmdb實例, 不匯入任何診斷模組
 
 
 let __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -134,53 +134,76 @@ describe('diaglog-run', function() {
                 e1.code = 'ENOENT'
                 let e2 = new TypeError(`y ${ID}`)
                 e2.code = ID
-                es.push(e1, e2)
+                let e3 = new Error('z')
+                e3.code = 'MDB_MAP_FULL' //lmdb之代碼集合(宣告codes: lmdb)
+                let e4 = new Error('w')
+                e4.code = 5 //整數不收(代碼一律明列, 不收整數)
+                let e5 = new Error('v')
+                e5.code = 'MDB_NOT_A_REAL_CODE' //未明列之樣式相符字串不收
+                es.push(e1, e2, e3, e4, e5)
                 let k = 0
                 w.on('change', () => {
                     throw es[k++]
                 })
-                await w.insert({ id: 'k1' })
-                await w.insert({ id: 'k2' })
+                for (let i = 0; i < es.length; i++) {
+                    await w.insert({ id: `k${i}` })
+                }
                 await w.close()
             })
             assert.deepStrictEqual(calls.map((c) => c.args), [
                 ['change handler threw', { mode: 'insert', errType: 'Error', errCode: 'ENOENT' }],
                 ['change handler threw', { mode: 'insert', errType: 'TypeError' }],
+                ['change handler threw', { mode: 'insert', errType: 'Error', errCode: 'MDB_MAP_FULL' }],
+                ['change handler threw', { mode: 'insert', errType: 'Error' }],
+                ['change handler threw', { mode: 'insert', errType: 'Error' }],
             ])
+        })
+
+        it('R-DIAG-01-1 訂閱函數拋出自訂類別之錯誤: 類別名不在白名單者摘要一律列Error(使用端類別名可夾帶資料)', async function() {
+            let { calls } = await capAsync(async() => {
+                let w = WOrm({ url, db: 'worm', cl: nextCl() })
+                class UserDataError extends Error {}
+                w.on('change', () => {
+                    throw new UserDataError(`c ${ID}`)
+                })
+                await w.insert({ id: 'c1' })
+                await w.close()
+            })
+            assert.deepStrictEqual(calls.map((c) => c.args), [['change handler threw', { mode: 'insert', errType: 'Error' }]])
         })
 
     })
 
     describe('logDetail', function() {
 
-        it('R-DIAG-01-2 logDetail:true 還原舊版輸出格式(每次拋錯一次console.log, 單一引數為拋出之Error, 無標籤), 儲存位置遮罩', async function() {
+        it('R-DIAG-01-2 logDetail:true 輸出標籤加遮罩後之細節(每次拋錯一次console.log(標籤, 拋出之Error之遮罩拷貝)), 儲存位置遮罩', async function() {
             let { r, calls } = await runSc({ logDetail: true }, true)
             assert.strictEqual(calls.length, golden.bad.calls.length)
             calls.forEach((c, k) => {
                 let g = golden.bad.calls[k]
-                assert.strictEqual(c.method, g.method, `第${k}行console方法同舊版`)
-                assert.strictEqual(c.args.length, g.args.length, `第${k}行引數數同舊版(無標籤)`)
-                assert.strictEqual(c.args.length, 1)
-                assert.ok(c.args[0] instanceof Error, `第${k}行為Error物件(同舊版console.log(err))`)
-                assert.strictEqual(String(c.args[0]), toMasked(g.args[0].text), `第${k}行文字同舊版(僅儲存位置遮罩)`)
-                assert.ok(c.args[0].message.indexOf(ID) >= 0, '細節保留非儲存位置之內容(id)')
-                assert.ok(util.inspect(c.args[0]).startsWith(`Error: listener ${ID} ***`), 'util.inspect首行同舊版格式')
+                assert.strictEqual(c.method, 'log', `第${k}行console方法為log(stdout)`)
+                assert.strictEqual(c.args.length, 2, `第${k}行引數為(標籤, 細節)`)
+                assert.strictEqual(c.args[0], r.evs[k][0] === 'change' ? 'change handler threw' : 'error handler threw', `第${k}行標籤`)
+                assert.ok(c.args[1] instanceof Error, `第${k}行細節為Error物件(拷貝)`)
+                assert.strictEqual(String(c.args[1]), toMasked(g.args[0].text), `第${k}行文字同修改前(僅儲存位置遮罩)`)
+                assert.ok(c.args[1].message.indexOf(ID) >= 0, '細節保留非儲存位置之內容(id)')
+                assert.ok(util.inspect(c.args[1]).startsWith(`Error: listener ${ID} ***`), 'util.inspect首行')
             })
             let t = allText(calls)
             assert.ok(t.indexOf(PW) < 0 && t.indexOf(url) < 0, `logDetail輸出含儲存位置: ${t.slice(0, 300)}`)
             assert.strictEqual(r.evs.length, calls.length)
         })
 
-        it('R-DIAG-01-2 logDetail:true 時拋出非Error值亦照舊版原樣輸出(bare)', async function() {
+        it('R-DIAG-01-2 logDetail:true 時拋出非Error值亦輸出標籤加細節(字串仍經遮罩)', async function() {
             let { calls } = await capAsync(async() => {
                 let w = WOrm({ url, db: 'worm', cl: nextCl(), logDetail: true })
                 w.on('change', () => {
-                    throw `str ${ID}`
+                    throw `str ${ID} ${url}`
                 })
                 await w.insert({ id: 's1' })
                 await w.close()
             })
-            assert.deepStrictEqual(calls.map((c) => c.args), [[`str ${ID}`]])
+            assert.deepStrictEqual(calls.map((c) => c.args), [['change handler threw', `str ${ID} ***`]])
         })
 
         it('R-DIAG-01-2 logDetail須為布林true才生效: \'true\'、1、{}、false 皆視為預設(安全輸出, 不拋錯)', async function() {

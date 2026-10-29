@@ -69,7 +69,8 @@ import pmSeries from 'wsemi/src/pmSeries.mjs'
 import cvOrmFind from 'wsemi/src/cvOrmFind.mjs'
 import chkOrmStr from 'wsemi/src/chkOrmStr.mjs'
 import chkOrmData from 'wsemi/src/chkOrmData.mjs'
-import { getOptLog, getSecrets, getDiag, getBriefErr, maskOpenErr } from './getDiag.mjs'
+import getDiag from 'wsemi/src/getDiag.mjs'
+import getDiagSecrets from 'wsemi/src/getDiagSecrets.mjs'
 
 
 /**
@@ -110,14 +111,14 @@ import { getOptLog, getSecrets, getDiag, getBriefErr, maskOpenErr } from './getD
  *
  * 一致性備份(w-orm-lmdb專屬擴充，系列其他後端無對應函數): backup(fpTar, { compact })以LMDB環境複製產生某一提交點之完整快照，服務運行中(本程序或另一程序寫入)亦一致，詳見backup之說明與README。
  *
- * 診斷輸出(w-orm系列規則，選項名稱與語意比照w-serv-orm、w-orm-reladb): 本套件僅於change或error事件之訂閱函數拋錯時輸出診斷(該錯誤已被攔下，不影響操作結果)。
- * 預設只輸出固定標籤('change handler threw'、'error handler threw')與不含個資之摘要({ mode, errType, errCode })，不輸出資料值、id、使用者識別與錯誤原文；errCode僅取Error實例之機器代碼樣式的code(ENOENT、ERR_xxx、MDB_xxx或絕對值至99999之整數)。
- * opt.logDetail為true時還原為舊版輸出(console.log該訂閱函數所拋之值，單一引數無標籤；所印為遮罩拷貝，含錯誤原文與堆疊，惟Error子類別只留類別名稱，Map、Set、二進位與逾6層者以標記字串代替)；
- * opt.funLog給函數(label, safe, detail)時診斷輸出改只交給它而不寫console，detail為完整細節之遮罩拷貝(不改動原物件；包裝物件如new String視同原始值；函數、二進位、Map、Set、RegExp、Promise與存取器以標記字串代替；深度6、節點2000為界)。
- * 儲存位置(opt.url、opt.db、opt.cl組成之路徑與其正規化、絕對路徑形式、scheme://帳密@形式之帳密)於任何輸出管道(預設、logDetail、funLog)皆以***遮罩，惟單獨短於4字元之回顯形式(如url為'db')不單獨遮罩，其完整儲存路徑仍遮罩；
- * 建構時open失敗而回顯儲存路徑之錯誤訊息亦同，遮罩後再throw(訊息前綴、Error型態、code、errno、syscall不變，path為'***'，cause等其餘屬性不沿用)。
- * 兩選項只影響診斷輸出，各操作之resolve與reject內容、事件參數與時機皆不變；選項於建構時取快照，型別不符者(logDetail非true、funLog非函數)忽略並用預設，與其他選項一致。
- * 不在此範圍: 底層lmdb-js自身之輸出(其JS層console.error/warn，與原生層直寫stderr者；後者於紀錄無法解壓時會傾印該筆紀錄之位元組)，不經console，兩選項無從攔截或遮罩。
+ * 診斷輸出(w-orm系列規則，遮罩與輸出出口為wsemi之getDiag、getDiagSecrets共用模組，選項語意以其說明為準): 本套件僅於change或error事件之訂閱函數拋錯時輸出診斷(該錯誤已被攔下，不影響操作結果)，輸出至console.log。
+ * 預設只輸出固定標籤('change handler threw'、'error handler threw')與不含個資之摘要({ mode, errType, errCode })，不輸出資料值、id、使用者識別與錯誤原文；errCode僅取明列於wsemi代碼集合內者(系統與Node之機器代碼、MDB_xxx)。
+ * opt.logDetail為true時輸出標籤加遮罩後之細節(console.log(標籤, 該訂閱函數所拋之值之遮罩拷貝)，含錯誤原文與堆疊，惟Error子類別只留類別名稱，Map、Set之內容照拷貝，二進位以長度標記，逾深度與節點上限者以標記字串代替)；
+ * opt.funLog給函數(label, safe, detail)時診斷輸出改只交給它而不寫console，detail為完整細節之遮罩拷貝(不改動原物件)。
+ * 診斷輸出之儲存位置(opt.url、opt.db、opt.cl組成之路徑與其正規化、絕對路徑形式)與憑證(scheme://帳密@、Bearer、token=等鍵值對)於任何輸出管道(預設、logDetail、funLog)皆以***遮罩；對外之錯誤值(reject、建構時throw、error事件之訊息、逐筆結果之err)只遮憑證，不遮儲存路徑。
+ * 外來值(lmdb、檔案系統與使用端回呼拋出者)交出前經wsemi之diag.err(逐筆err與事件訊息經diag.mask)；本套件自身以固定詞彙組成之錯誤(含回顯呼叫端自給之id者)原樣交出，不經遮罩。
+ * 選項於建構時取快照，型別不符者(logDetail非true、funLog非函數)忽略並用預設，與其他選項一致；兩選項只影響診斷輸出，各操作之resolve與reject內容、事件參數與時機皆不變。
+ * 不在此範圍: 底層lmdb-js自身之輸出(其JS層console.error/warn，與原生層直寫stderr者；後者於紀錄無法解壓時會傾印該筆紀錄之位元組)，不經本套件之出口，無從攔截或遮罩，部署面應視該程序之stderr為敏感。
  *
  * @class
  * @param {Object} [opt={}] 輸入設定物件，預設{}
@@ -188,12 +189,38 @@ function WOrmLmdb(opt = {}) {
     let storage = `${url}/${db}/${cl}`
     // console.log('storage',storage)
 
-    //diag, 診斷輸出之單一出口(R-DIAG-01), 選項logDetail與funLog於建構時取快照; 儲存位置(url、storage與其絕對路徑)於任何輸出皆遮罩
-    //url、url/db、url/db/cl三層, 各取原樣、去尾斜線、正規化(去前導./與重複斜線)與絕對路徑形式
-    let secrets = getSecrets([url, `${url}/${db}`, storage].flatMap((v) => [v, v.replace(/[\\/]+$/, ''), path.normalize(v), path.resolve(v)]))
-    let diag = getDiag(getOptLog(opt), secrets)
+    //diag, 診斷輸出之單一出口(R-DIAG-01, wsemi之getDiag), 選項logDetail與funLog於建構時取快照; 本套件只宣告秘密來源、代碼集合、樣式與safe鍵, 遮罩與輸出一律經它
+    //paths: 儲存位置(url、url/db、url/db/cl三層), 各取原樣、去尾斜線、正規化(去前導./與重複斜線)與絕對路徑形式; 路徑只於診斷輸出遮罩, 對外錯誤值只遮憑證(dspec Q3)
+    //patterns: fsPathTail與receivedTail為Node檔案系統訊息之路徑尾段與參數錯誤之Received尾段(只作用於診斷輸出之訊息段)
+    //codes: lmdb之MDB_xxx; safeKeys: safe僅用到mode(errType與errCode恆含)
+    let paths = [url, `${url}/${db}`, storage].flatMap((v) => [v, v.replace(/[\\/]+$/, ''), path.normalize(v), path.resolve(v)])
+    let diag = getDiag(opt, {
+        secrets: getDiagSecrets({ paths }),
+        patterns: ['fsPathTail', 'receivedTail'],
+        codes: ['lmdb'],
+        safeKeys: ['mode'],
+    })
 
-    // client, open失敗之錯誤訊息會回顯儲存路徑(含opt.url), 遮罩後再拋出(訊息前綴與Error型態不變)
+    //ownErrs, 本套件自身以固定詞彙組成之錯誤(mkErr建立): 不經diag.err; 固定字串經遮罩若恰含秘密子字串即被挖空而可反推, 其中回顯之呼叫端自給之id亦屬回傳契約
+    let ownErrs = new WeakSet()
+    let mkErr = (msg) => {
+        let err = new Error(msg)
+        ownErrs.add(err)
+        return err
+    }
+
+    //outErr, catch站點交出之錯誤值: 本套件自身之錯誤原樣, 其餘(lmdb、檔案系統與使用端回呼拋出者)經diag.err(含憑證才改為副本)
+    let outErr = (err) => {
+        return ownErrs.has(err) ? err : diag.err(err)
+    }
+
+    //outMsg, 逐筆結果之err欄位與error事件之訊息字串: 本套件自身之錯誤原樣, 其餘取訊息後經diag.mask
+    let outMsg = (err) => {
+        let msg = getErrMsg(err)
+        return ownErrs.has(err) ? msg : diag.mask(msg)
+    }
+
+    // client, open失敗之錯誤訊息會回顯儲存路徑(含opt.url), 外來值經diag.err後再拋出(只遮憑證, 不遮儲存路徑)
     let client = null
     try {
         client = open({
@@ -203,7 +230,7 @@ function WOrmLmdb(opt = {}) {
         })
     }
     catch (err) {
-        throw maskOpenErr(err, secrets)
+        throw diag.err(err)
     }
 
     //ee
@@ -317,7 +344,7 @@ function WOrmLmdb(opt = {}) {
     //  寫交易內之讀取已取最新資料, 不需重設
     let prepareRead = (mode) => {
         if (isClosed()) {
-            throw new Error(getClosedMsg(mode))
+            throw mkErr(getClosedMsg(mode))
         }
         client.resetReadTxn()
     }
@@ -332,7 +359,7 @@ function WOrmLmdb(opt = {}) {
             }
         }
         catch (err) {
-            diag('change handler threw', { mode, ...getBriefErr(err) }, () => err, true)
+            diag('change handler threw', { mode, ...diag.brief(err) }, () => err, 'log')
         }
     }
 
@@ -344,7 +371,7 @@ function WOrmLmdb(opt = {}) {
             ee.emit('error', mode, data, getErrMsg(err))
         }
         catch (errEmit) {
-            diag('error handler threw', { mode, ...getBriefErr(errEmit) }, () => errEmit, true)
+            diag('error handler threw', { mode, ...diag.brief(errEmit) }, () => errEmit, 'log')
         }
     }
 
@@ -364,7 +391,7 @@ function WOrmLmdb(opt = {}) {
     let procPk = (data, fnName) => {
         each(data, function(v, k) {
             if (!isobj(v)) {
-                throw new Error(`can not ${fnName} by data[${k}] which is not an object`)
+                throw mkErr(`can not ${fnName} by data[${k}] which is not an object`)
             }
         })
         if (autoGenPk) {
@@ -377,7 +404,7 @@ function WOrmLmdb(opt = {}) {
         }
         each(data, function(v, k) {
             if (!isestr(get(v, 'id'))) {
-                throw new Error(`can not ${fnName} by data[${k}] without valid id when autoGenPk is false`)
+                throw mkErr(`can not ${fnName} by data[${k}] without valid id when autoGenPk is false`)
             }
         })
         return data
@@ -417,7 +444,7 @@ function WOrmLmdb(opt = {}) {
         each(data, function(v, k) {
             let msg = getWellFormedMsg(v, k)
             if (msg !== null) {
-                throw new Error(msg)
+                throw mkErr(msg)
             }
         })
     }
@@ -448,13 +475,14 @@ function WOrmLmdb(opt = {}) {
     let procWritable = (data, fnName) => {
         each(data, function(v, k) {
             if (!keyFits(v.id)) {
-                throw new Error(`can not ${fnName} by data[${k}], Key size is larger than the maximum key size (${maxKeySize})`)
+                throw mkErr(`can not ${fnName} by data[${k}], Key size is larger than the maximum key size (${maxKeySize})`)
             }
             try {
                 client.encoder.encode(v)
             }
             catch (err) {
-                throw new Error(`can not ${fnName} by data[${k}], ${getErrMsg(err)}`)
+                //訊息後綴為編碼器之原訊息(外來值), 經diag.mask後與固定前綴組成本套件之錯誤
+                throw mkErr(`can not ${fnName} by data[${k}], ${outMsg(err)}`)
             }
         })
     }
@@ -531,7 +559,7 @@ function WOrmLmdb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err)
         }
         // console.log('res', res)
 
@@ -587,7 +615,7 @@ function WOrmLmdb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err)
         }
 
         //check
@@ -708,7 +736,7 @@ function WOrmLmdb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err)
         }
 
         //update, 不能保證插入多少, 一律重設快取
@@ -803,7 +831,7 @@ function WOrmLmdb(opt = {}) {
 
             //check, 衝突則整批視為失敗, 交易已回滾故無任何寫入
             if (isestr(pkConflict)) {
-                throw new Error(`can not insertBulk by existed id[${pkConflict}]`)
+                throw mkErr(`can not insertBulk by existed id[${pkConflict}]`)
             }
 
             //res, 未衝突則全數插入, 故nInserted恆等於n
@@ -816,12 +844,12 @@ function WOrmLmdb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err)
 
             //入口通過後才close者, childTransaction之回調延後執行而遇關閉, lmdb回報Database is closed,
             //統一為已關閉之訊息(T4: 訊息明示closed); 主鍵衝突者交易已實際執行, 保留其衝突訊息
             if (isClosed() &amp;&amp; !isestr(pkConflict)) {
-                res = new Error(getClosedMsg('insertBulk'))
+                res = mkErr(getClosedMsg('insertBulk'))
             }
 
         }
@@ -923,7 +951,7 @@ function WOrmLmdb(opt = {}) {
 
                     //不合格者以該筆失敗回報(下方catch組成ok為0之結果), 先於該筆之任何讀取與寫入
                     if (msgs[k] !== null) {
-                        throw new Error(msgs[k])
+                        throw mkErr(msgs[k])
                     }
 
                     //快速路徑, 先不開寫交易直接預讀, 內容相同者本就不須寫入, 可省去開啟寫交易之成本
@@ -986,7 +1014,7 @@ function WOrmLmdb(opt = {}) {
                                 let vIn = merge({}, v)
                                 let eIn = chkOrmData(vIn, { root: `data[${k}]` })
                                 if (eIn !== null) {
-                                    throw new Error(`invalid data: ${eIn.reason} at [${eIn.path}]`)
+                                    throw mkErr(`invalid data: ${eIn.reason} at [${eIn.path}]`)
                                 }
                                 vm = merge({}, vv, vIn)
                             }
@@ -1053,19 +1081,19 @@ function WOrmLmdb(opt = {}) {
 
                     //已關閉(含操作進行中被close)影響後續所有筆數, 屬整批性錯誤(T4), 往外拋令整批reject, 不降為該筆ok為0
                     if (isClosed()) {
-                        throw new Error(getClosedMsg('save'))
+                        throw mkErr(getClosedMsg('save'))
                     }
 
                     //交易回調內已設inserted, 惟交易失敗時未實際寫入, 須重設以免發出insert事件
                     inserted = false
 
-                    //本筆失敗不中斷整批, 以ok為0並附err回報, 由呼叫端逐筆檢查
+                    //本筆失敗不中斷整批, 以ok為0並附err回報, 由呼叫端逐筆檢查; err於建立時經outMsg(外來值經diag.mask), 令change事件與回傳值同源
                     rest = {
                         n: 1,
                         nInserted: 0,
                         nModified: 0,
                         ok: 0,
-                        err: getErrMsg(err),
+                        err: outMsg(err),
                     }
 
                 }
@@ -1098,7 +1126,7 @@ function WOrmLmdb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err)
         }
 
         //update, 不能保證變更多少, 一律重設快取
@@ -1224,15 +1252,15 @@ function WOrmLmdb(opt = {}) {
 
                     //已關閉(含操作進行中被close)影響後續所有筆數, 屬整批性錯誤(T4), 往外拋令整批reject, 不降為該筆ok為0
                     if (isClosed()) {
-                        throw new Error(getClosedMsg('del'))
+                        throw mkErr(getClosedMsg('del'))
                     }
 
-                    //本筆失敗不中斷整批, 以ok為0並附err回報, 由呼叫端逐筆檢查
+                    //本筆失敗不中斷整批, 以ok為0並附err回報, 由呼叫端逐筆檢查; err於建立時經outMsg(外來值經diag.mask)
                     rest = {
                         n: 1,
                         nDeleted: 0,
                         ok: 0,
-                        err: getErrMsg(err),
+                        err: outMsg(err),
                     }
 
                 }
@@ -1251,7 +1279,7 @@ function WOrmLmdb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err)
         }
 
         //update, 不能保證刪除多少, 一律重設快取
@@ -1366,11 +1394,11 @@ function WOrmLmdb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err)
 
             //刪除途中被close者, lmdb回報之訊息不一, 統一為已關閉之訊息(T4: 訊息明示closed)
             if (isClosed()) {
-                res = new Error(getClosedMsg('delAll'))
+                res = mkErr(getClosedMsg('delAll'))
             }
 
         }
@@ -1434,11 +1462,9 @@ function WOrmLmdb(opt = {}) {
             return procClosed('backup', null)
         }
 
-        //bad, 檢核之錯誤(訊息已完整, 不再加前綴)
+        //bad, 檢核之錯誤(訊息已完整, 不再加前綴; 本套件自身之錯誤, 以ownErrs辨識而不用可被外來錯誤偽造之自有屬性)
         let bad = (msg) => {
-            let err = new Error(msg)
-            err.isBad = true
-            return err
+            return mkErr(msg)
         }
 
         //core
@@ -1567,8 +1593,8 @@ function WOrmLmdb(opt = {}) {
         }
         catch (err) {
 
-            //emit, 整批性錯誤須於reject之前發出; 檢核之錯誤訊息已完整, 其餘(檔案系統或lmdb之錯誤)加前綴
-            let msg = get(err, 'isBad') === true ? err.message : `can not backup, ${getErrMsg(err)}`
+            //emit, 整批性錯誤須於reject之前發出; 檢核之錯誤訊息已完整, 其餘(檔案系統或lmdb之錯誤, 外來值經diag.mask)加前綴
+            let msg = ownErrs.has(err) ? err.message : `can not backup, ${outMsg(err)}`
             emitError('backup', null, msg)
 
             return Promise.reject(new Error(msg))
@@ -1619,7 +1645,7 @@ export default WOrmLmdb
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 28 2026 10:36:12 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Thu Oct 29 2026 20:38:34 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
