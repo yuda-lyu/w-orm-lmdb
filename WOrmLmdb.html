@@ -105,20 +105,20 @@ err為錯誤訊息字串，內容與正規管道所送出者一致。
 U+FFFD本身與成對代理(emoji等)為良構，照常接受。既有資料不遷移，檢出與清除法見README。</li>
 </ol>
 <p>一致性備份(w-orm-lmdb專屬擴充，系列其他後端無對應函數): backup(fpTar, { compact })以LMDB環境複製產生某一提交點之完整快照，服務運行中(本程序或另一程序寫入)亦一致，詳見backup之說明與README。</p>
-<p>診斷輸出(w-orm系列規則，選項名稱與語意比照w-serv-orm、w-orm-reladb): 本套件僅於change或error事件之訂閱函數拋錯時輸出診斷(該錯誤已被攔下，不影響操作結果)。
-預設只輸出固定標籤('change handler threw'、'error handler threw')與不含個資之摘要({ mode, errType, errCode })，不輸出資料值、id、使用者識別與錯誤原文；errCode僅取Error實例之機器代碼樣式的code(ENOENT、ERR_xxx、MDB_xxx或絕對值至99999之整數)。
-opt.logDetail為true時還原為舊版輸出(console.log該訂閱函數所拋之值，單一引數無標籤；所印為遮罩拷貝，含錯誤原文與堆疊，惟Error子類別只留類別名稱，Map、Set、二進位與逾6層者以標記字串代替)；
-opt.funLog給函數(label, safe, detail)時診斷輸出改只交給它而不寫console，detail為完整細節之遮罩拷貝(不改動原物件；包裝物件如new String視同原始值；函數、二進位、Map、Set、RegExp、Promise與存取器以標記字串代替；深度6、節點2000為界)。
-儲存位置(opt.url、opt.db、opt.cl組成之路徑與其正規化、絕對路徑形式、scheme://帳密@形式之帳密)於任何輸出管道(預設、logDetail、funLog)皆以<em><strong>遮罩，惟單獨短於4字元之回顯形式(如url為'db')不單獨遮罩，其完整儲存路徑仍遮罩；
-建構時open失敗而回顯儲存路徑之錯誤訊息亦同，遮罩後再throw(訊息前綴、Error型態、code、errno、syscall不變，path為'</strong></em>'，cause等其餘屬性不沿用)。
-兩選項只影響診斷輸出，各操作之resolve與reject內容、事件參數與時機皆不變；選項於建構時取快照，型別不符者(logDetail非true、funLog非函數)忽略並用預設，與其他選項一致。
-不在此範圍: 底層lmdb-js自身之輸出(其JS層console.error/warn，與原生層直寫stderr者；後者於紀錄無法解壓時會傾印該筆紀錄之位元組)，不經console，兩選項無從攔截或遮罩。</p></li></ul></dd>
+<p>診斷輸出(w-orm系列規則，遮罩與輸出出口為wsemi之getDiag、getDiagSecrets共用模組，選項語意以其說明為準): 本套件僅於change或error事件之訂閱函數拋錯時輸出診斷(該錯誤已被攔下，不影響操作結果)，輸出至console.log。
+預設只輸出固定標籤('change handler threw'、'error handler threw')與不含個資之摘要({ mode, errType, errCode })，不輸出資料值、id、使用者識別與錯誤原文；errCode僅取明列於wsemi代碼集合內者(系統與Node之機器代碼、MDB_xxx)。
+opt.logDetail為true時輸出標籤加遮罩後之細節(console.log(標籤, 該訂閱函數所拋之值之遮罩拷貝)，含錯誤原文與堆疊，惟Error子類別只留類別名稱，Map、Set之內容照拷貝，二進位以長度標記，逾深度與節點上限者以標記字串代替)；
+opt.funLog給函數(label, safe, detail)時診斷輸出改只交給它而不寫console，detail為完整細節之遮罩拷貝(不改動原物件)。
+診斷輸出之儲存位置(opt.url、opt.db、opt.cl組成之路徑與其正規化、絕對路徑形式)與憑證(scheme://帳密@、Bearer、token=等鍵值對)於任何輸出管道(預設、logDetail、funLog)皆以***遮罩；對外之錯誤值(reject、建構時throw、error事件之訊息、逐筆結果之err)只遮憑證，不遮儲存路徑。
+外來值(lmdb、檔案系統與使用端回呼拋出者)交出前經wsemi之diag.err(逐筆err與事件訊息經diag.mask)；本套件自身以固定詞彙組成之錯誤(含回顯呼叫端自給之id者)原樣交出，不經遮罩。
+選項於建構時取快照，型別不符者(logDetail非true、funLog非函數)忽略並用預設，與其他選項一致；兩選項只影響診斷輸出，各操作之resolve與reject內容、事件參數與時機皆不變。
+不在此範圍: 底層lmdb-js自身之輸出(其JS層console.error/warn，與原生層直寫stderr者；後者於紀錄無法解壓時會傾印該筆紀錄之位元組)，不經本套件之出口，無從攔截或遮罩，部署面應視該程序之stderr為敏感。</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line86">line 86</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line87">line 87</a>
     </li></ul></dd>
     
 
@@ -637,7 +637,7 @@ string contains NUL、string contains lone surrogate)。已關閉之實例整批
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1383">line 1383</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1411">line 1411</a>
     </li></ul></dd>
     
 
@@ -921,7 +921,7 @@ string contains NUL、string contains lone surrogate)。已關閉之實例整批
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1088">line 1088</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1116">line 1116</a>
     </li></ul></dd>
     
 
@@ -1103,7 +1103,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1262">line 1262</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1290">line 1290</a>
     </li></ul></dd>
     
 
@@ -1281,7 +1281,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line567">line 567</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line595">line 595</a>
     </li></ul></dd>
     
 
@@ -1572,7 +1572,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line698">line 698</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line726">line 726</a>
     </li></ul></dd>
     
 
@@ -1737,7 +1737,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line817">line 817</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line845">line 845</a>
     </li></ul></dd>
     
 
@@ -2065,7 +2065,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line439">line 439</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line467">line 467</a>
     </li></ul></dd>
     
 
@@ -2244,7 +2244,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line511">line 511</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line539">line 539</a>
     </li></ul></dd>
     
 
@@ -2401,7 +2401,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 28 2026 10:36:12 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Thu Oct 29 2026 20:38:34 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
