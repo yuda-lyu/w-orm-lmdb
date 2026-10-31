@@ -185,4 +185,5 @@
 - **NodeError 子類的副本原型**: 含憑證的 Node 內部錯誤(`ERR_INVALID_ARG_TYPE` 等)經 `diag.err` 的副本,原型為 `TypeError.prototype`(原為 NodeError 子類原型),`instanceof`、`constructor.name`、`code` 同——測試以 `instanceof` 與 `constructor.name` 比對,不比原型物件.不含憑證者是原物件(原型當然同).
 - **預設 `url: './_db'` 的正規化形式 `_db`(3 字元)現於診斷輸出被遮**(wsemi 路徑門檻 ≥3,修改前本套件為 <4 不列);實測 `x _db y` → `x *** y`.僅診斷輸出,不影響對外值.
 - **`npm i wsemi@latest` 的副作用**: `package-lock.json` 變動 +7/-1142,內容為 `resolved` 欄(npmjs 網址)被移除與頂層 `version` 由 1.0.44 跟到 1.0.46(registry 為私有 Verdaccio 所致);`package.json` 被補的檔尾換行已還原(其 diff 只剩 wsemi 一行).`package-lock.json` 之變動非本輪意圖,報告列出,由主控決定是否採用.
+- **語料 wire 案處置表紅燈時,以失敗訊息之差集為準,不以派工描述之案數為準**(orm233: 派工說新增 A11,實際差集為 A11、C14、U22 三案,wsemi 1.9.36 共 23 案):先 `D.cases.filter((c) => c.wire)` 列全部 id 再逐案讀語料之 `call` 與 `label`,判定適用與否須追到 wsemi 的 `getDiag.mjs`、`getDiagSecrets.mjs` 之 import(確認是否引入 `genDiagFunLog`)與本套件 `getDiag(opt, {…})` 之宣告(`paths`/`urls`/`conns`、`codes`/`types`).
 - **測試鎖**: 單次 `--lock` 等待 0 秒~2 分鐘(他套件持有);quiet-run 報告 `web-tests` 槽有持有者 pid 已不存在之殘留鎖(owner=w-serv-webdata),依規範不處理、報告主控.

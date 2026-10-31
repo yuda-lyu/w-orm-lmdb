@@ -20,6 +20,7 @@ let url = path.join(dirBase, 'svc-S3cretPw@host')
 
 //WIRE, 本套件對語料wire案(各套件接線測試應重跑之案)之處置: detail=經訂閱函數拋出由funLog收到之detail依語料期望驗(change與error兩站點各一次);
 //brief=safe摘要依語料期望驗; reject=於unit-diagerr以真實catch站點驗; own=以本套件自身之等價案驗(原因見註); na=不適用(原因見註)
+//na之判定須追診斷輸出路徑(本套件src只引入getDiag與getDiagSecrets, 兩者皆不引入genDiagFunLog; src不用conns與types), 不只看src有無字樣
 let WIRE = {
     T01: ['detail'],
     T07: ['detail', 'reject'],
@@ -41,6 +42,9 @@ let WIRE = {
     O15: ['own'], //safe白名單: safe由本套件內部建構, 不接受外部注入, 以safeKeys宣告驗(unit-diaglog-run之摘要欄位)
     A01: ['na'], //genDiagFunLog: 本套件不使用轉接器
     A07: ['na'],
+    A11: ['na'], //genDiagFunLog之opt.safeKeys: 轉接器由伺服端使用端自建, 本套件src與其呼叫之getDiag、getDiagSecrets皆不引入genDiagFunLog; 本套件自身之safe白名單為getDiag之cfg.safeKeys(src/WOrmLmdb.mjs, 見O15)
+    C14: ['na'], //pg之DatabaseError形態(getDiagBriefErr之types宣告): 本套件只宣告codes:['lmdb'], 不宣告types, 驅動錯誤之errType恆為Error; 自訂類別名不在白名單者列Error之等價案由unit-diaglog-run驗
+    U22: ['na'], //getDiagSecrets之conns(連線位址依內容分類): 本套件以paths宣告儲存位置(儲存路徑非連線字串), 不用conns
 }
 
 let nCl = 0
