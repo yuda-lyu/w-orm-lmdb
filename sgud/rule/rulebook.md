@@ -190,7 +190,7 @@
 
 ## R-BACKUP-01 一致性備份 `backup(fpTar, { compact })`(lmdb 專屬擴充;Gitea issue #11)
 
-- 狀態: 已套(2026-10-20,與第 66 項批 1a 同交付,獨立項;任務 `C:\opensrcOper\dnow\20261020205125\task.md`,建議檔 `建議w-orm-lmdb調整.md`,報告 `C:\opensrcOper\dnow\20261020205125\agent-out\run01-修正報告.md`).來源: rddmanager 之備份服務(`serbak`)須於服務運行中備份各資料表(每表一個 LMDB 環境),直接複製 `data.mdb` 可能讀到寫入中之頁面而不一致,現況以 `import { open } from 'lmdb'` 自行 `backup`.
+- 狀態: 已套(2026-10-20,與第 66 項批 1a 同交付,獨立項;任務 `C:\opensrcOper\dnow\20261020205125\task.md`,建議檔 `建議w-orm-lmdb調整.md`,報告 `C:\opensrcOper\dnow\20261020205125\agent-out\run01-修正報告.md`).來源: 使用端之備份服務(`serbak`)須於服務運行中備份各資料表(每表一個 LMDB 環境),直接複製 `data.mdb` 可能讀到寫入中之頁面而不一致,現況以 `import { open } from 'lmdb'` 自行 `backup`.
 - 介面決定(主控授權自定): **實例方法** `WOrmLmdb(opt).backup(fpTar, option)`,而非獨立函數 `backupEnv`.取捨: ①獨立匯出須改 UMD 之匯出形狀(預設匯出加具名匯出,rollup 之 `exports` 由 default 轉 named,CJS 之 `require()` 預設用法破壞),實例方法無此影響;②實例方法沿用實例之 `isClosed`/事件/`close` 語意;③缺點: 備份行程須以同一 `url/db/cl` 建構實例(建構不存在之資料表會建立空環境),README 載明「只對既有資料表備份」.JSDoc、README 載明為 lmdb 專屬擴充,不列入系列統一規格.
 - 單一擁有者: `backup`(`:1360`)、`close`(`:1512`)與 `closing`(`:220`)/`isClosed`(`:224`)/`pmBackups`(`:1330`);內部以 lmdb-js `client.backup(path, compact)`(`node_modules/lmdb/open.js:431`: 僅建立其上層而**不建立目標資料夾**,實測目標不存在即回「找不到路徑」,故本函數自建;`env.cpp:918` `mdb_env_copy2`,compact 為 `MDB_CP_COMPACT`;目標已有 `data.mdb` 時 LMDB 以 `O_EXCL` 拒絕).
 - 規則:
