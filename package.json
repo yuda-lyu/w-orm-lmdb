@@ -1,14 +1,14 @@
 {
   "name": "w-orm-lmdb",
-  "version": "1.0.60",
+  "version": "1.0.61",
   "main": "dist/w-orm-lmdb.umd.js",
   "dependencies": {
     "lmdb": "^3.5.9",
     "mingo": "^7.2.7",
-    "wsemi": "^1.9.56"
+    "wsemi": "^1.9.57"
   },
   "devDependencies": {
-    "w-package-tools": "^1.1.26"
+    "w-package-tools": "^1.1.27"
   },
   "scripts": {
     "test": "mocha --parallel \"test/*.test.mjs\" --timeout 180000",
