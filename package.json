@@ -1,11 +1,11 @@
 {
   "name": "w-orm-lmdb",
-  "version": "1.0.65",
+  "version": "1.0.66",
   "main": "dist/w-orm-lmdb.umd.js",
   "dependencies": {
     "lmdb": "^3.5.9",
     "mingo": "^7.2.7",
-    "wsemi": "^1.9.61"
+    "wsemi": "^1.9.62"
   },
   "devDependencies": {
     "w-package-tools": "^1.1.28"
