@@ -38,7 +38,7 @@ let loop = async() => {
 
 process.on('message', async(m) => {
     if (m.cmd === 'fill') {
-        //填充資料: 使資料庫檔足夠大, 令備份(及直接複製檔案之錯誤作法)耗時而與持續之寫入重疊; 填充列id為f<序號>, 每個交易1000筆
+        //填充資料: 使備份有一定之複製量; 因開啟時 compression: true 而相同內容之 pad 可壓縮, 填充4萬列後資料庫檔實測僅約6MB(非未壓縮之約80MB), 備份窗口不長, 故不依賴窗口長短, 斷言之下界由事件閘門決定; 填充列id為f<序號>, 每個交易1000筆
         for (let i = 0; i < m.n; i += 1000) {
             await db.transaction(() => {
                 for (let j = i; j < Math.min(i + 1000, m.n); j++) {

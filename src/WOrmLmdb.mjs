@@ -1400,6 +1400,10 @@ function WOrmLmdb(opt = {}) {
      * string contains NUL、string contains lone surrogate)。已關閉之實例整批reject。錯誤皆於reject之前發出一次error事件(mode為'backup'，data為null以不回顯路徑)，不發出change事件(不異動資料)。
      * 備份進行中呼叫close()會等候備份結束後才關閉環境，期間實例已視為已關閉而拒絕新操作。
      *
+     * 使用限制: 資料庫較大且備份期間有無間歇之持續寫入(例如寫入迴圈不留空檔地連續提交)時，備份可能停住甚久
+     * (實測約12MB資料庫、每秒百餘批之連續寫入下偶有逾百秒；裸lmdb-js之db.backup同樣如此，屬lmdb層而非本套件)。
+     * 停住期間寫入不受阻擋，但close()會等候備份而同樣不結束。建議備份期間讓寫入有間歇，或於寫入較少時備份。
+     *
      * 註: 以另一程序備份時，於該程序以同一url、db、cl建構實例後呼叫本函數即可(讀取可由任意多個程序進行)；建構不存在之資料表會建立空環境，請只對既有資料表備份。
      *
      * @memberOf WOrmLmdb

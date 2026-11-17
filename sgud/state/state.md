@@ -2,9 +2,9 @@
 
 本檔只記現況,不寫過程(過程見 `sgud/exp/experience.md`);各功能之規則與盤點指令見 `sgud/rule/rulebook.md`.
 
-- 更新: 2026-11-01(orm233:wsemi 1.9.36 語料新增 wire 案 A11、C14、U22,`unit-diaglog` 處置表補登為不適用);前次 2026-10-29(mig-lmdb,排程第 161 項:診斷輸出與遮罩改用 wsemi 共用模組).
-- 版號: `package.json` 為 1.0.46;本輪未改版號、未 commit、未發布(發布由使用者/主控統籌).`wsemi` 依賴升為 `^1.9.31`.
-- 最近一次驗證(2026-11-01,orm233,wsemi 1.9.36): 全套 `npm test`(`quiet-run --lock`)3327 passing、210 pending、0 failing(盤查時 `R-DIAG-01-8` 紅於處置表缺 A11、C14、U22,補登後綠).前次(2026-10-29,mig-lmdb): 全套 `npm test` 3327 passing、210 pending、0 failing(修改前基準 3320;quiet-run 日誌存證據夾 `full-npm-test.log`;同輪另一次全套與單檔重跑見 `unit-backup` 既有計時不穩定: 案例「同程序持有環境且寫入進行中: 連續備份…」斷言 `nBatch > 10`,修前 HEAD 之 src 2/12、修後 2/12 次失敗〔交錯重跑,證據 `flake-unit-backup/`〕,未改該測試、與本輪無關,未修〔待主控〕);診斷相關五檔 103 案(`unit-diaglog` 26、`unit-diagerr` 22、`unit-urlerr` 16、`unit-diagsite` 10、`unit-diaglog-run` 29);修前紅(HEAD 之 src 搭新測試): 102 案紅 44;變異 42 項殺死 42(`F10`、`L3` 為行為等價變異,僅被站點盤點掃描殺死).`tmp/` 已於結案時清理,證據備份於 `C:\opensrcOper\dnow\20261029002013\agent-out\mig-lmdb-evidence\`.
+- 更新: 2026-11-18(wol387,排程第 387 項:`unit-backup` 同程序一致性案改為事件同步之見證判準,見 R-BACKUP-01 規則 9);前次 2026-11-01(orm233:wsemi 1.9.36 語料新增 wire 案 A11、C14、U22,`unit-diaglog` 處置表補登為不適用)、2026-10-29(mig-lmdb,排程第 161 項:診斷輸出與遮罩改用 wsemi 共用模組).
+- 版號: `package.json` 為 1.0.68(以下 2026-11-01 之列為當時之 1.0.46);本輪未改版號、未 commit、未發布(發布由使用者/主控統籌).
+- 最近一次驗證(2026-11-18,wol387,`src` 未改): 全套 `npm test`(`quiet-run --lock`,閒置)3327 passing、210 pending、0 failing(與修前基準同數);`unit-backup` 同程序案於 6 個忙迴圈(below-normal)之負載下,修前 7/40 紅(皆 `writer should keep progressing, got 10`),修後 0/70(單案 70 次、整檔 25 案 10 次皆綠);阻擋變異 M1(寫入等備份)、M2(同步複製)新版 6/6 紅.前次(2026-11-01,orm233,wsemi 1.9.36): 全套 `npm test`(`quiet-run --lock`)3327 passing、210 pending、0 failing(盤查時 `R-DIAG-01-8` 紅於處置表缺 A11、C14、U22,補登後綠).前次(2026-10-29,mig-lmdb): 全套 `npm test` 3327 passing、210 pending、0 failing(修改前基準 3320;quiet-run 日誌存證據夾 `full-npm-test.log`;同輪另一次全套與單檔重跑見 `unit-backup` 既有計時不穩定: 案例「同程序持有環境且寫入進行中: 連續備份…」斷言 `nBatch > 10`,修前 HEAD 之 src 2/12、修後 2/12 次失敗〔交錯重跑,證據 `flake-unit-backup/`〕,未改該測試、與本輪無關,未修〔待主控〕);診斷相關五檔 103 案(`unit-diaglog` 26、`unit-diagerr` 22、`unit-urlerr` 16、`unit-diagsite` 10、`unit-diaglog-run` 29);修前紅(HEAD 之 src 搭新測試): 102 案紅 44;變異 42 項殺死 42(`F10`、`L3` 為行為等價變異,僅被站點盤點掃描殺死).`tmp/` 已於結案時清理,證據備份於 `C:\opensrcOper\dnow\20261029002013\agent-out\mig-lmdb-evidence\`.
 
 ## 功能現況
 
@@ -36,5 +36,6 @@
 
 - 診斷輸出: 見 R-DIAG-01〈已知限制〉(驅動日誌不攔、對外值不遮儲存路徑〔Q3〕、`url` 之 `scheme://帳密@` 形式經路徑正規化後不再是網址形式而不被遮、預設 `_db` 現於診斷輸出被遮、POSIX 未實機驗證、測試接縫依賴 `msgpackr` 之 `Unpackr.prototype.decode` 與 `addExtension`).
 - 其餘功能之已知限制見各條目(R-READ-02: 非關閉之環境層錯誤於 save/del 降為逐筆 `ok:0`;R-BACKUP-01 已知限制 ①–⑥;R-ORMSTR-01 已知限制 ①–⑤).
-- 既有不穩定(非本輪引入): `unit-backup.test.mjs`「同程序持有環境且寫入進行中: 連續備份…」於負載下偶敗(`writer should keep progressing, got 10`,斷言 `nBatch > 10` 為計時門檻);交錯重跑 12 對,HEAD 之 src 2/12、修後 2/12,同一斷言;該測試與 HEAD 相同,未動、未放寬;根因(寫入迴圈在備份期間被排程餓死之負載敏感度)未證實,列待主控決定是否改為事件同步判準(role-coder-for-test §8).
+- 已解(2026-11-18,第 387 項): `unit-backup` 同程序案原以寫入端總批數門檻 `nBatch > 10` 判定,成因為門檻比的是寫入提交速度與約 10ms 備份長短之相對快慢(正確實作閒置時僅得 11,裕度 1 批),非產品阻擋寫入;已改事件同步之見證判準(R-BACKUP-01 規則 9、已知限制 ⑦).
+- 已解(2026-11-18,主控裁示,R-BACKUP-01 已知限制 ⑧): 無間歇之持續寫入下備份大型資料庫偶有停住逾百秒(lmdb-js 層,裸 `db.backup` 同樣重現);採註明使用限制——已於 README 備份說明與 `src/WOrmLmdb.mjs` `backup` 之 JSDoc 註明,**不加逾時/停滯選項**(見 `sgud/feedback/feedback.md`).另跨程序案與 `test/tools/batchWriter.mjs` 之「約 80MB」註解已更正為實測值(`compression: true` 下約 6MB,未改填充行為).
 - 待裁示(主控,細節見報告〈待裁示〉): ① Q3 後 `url` 內之網址帳密形式(`http://user:pw@host/x`)於建構錯誤不再被遮(路徑正規化成 `http:\user:pw@host\x`)——是否接受(本套件 `url` 為資料夾,無帳密欄位),或另宣告 `values`/`urls`;② 下游影響: 依賴本套件(`^1.0.45`)之 w-web-task、w-web-sso、w-web-perm、w-web-api、w-knowledge-extract、w-data-pipeline,經 Grep(各 `server`/`src` 之 `.mjs`)未見直接傳入本套件之 `logDetail`/`funLog` 或讀 `errCode`(其診斷經 w-serv-orm 之 funLog);建構錯誤 `err.path` 由 `'***'` 改為完整路徑、對外錯誤值不再遮路徑,為可見行為變化;③ `package-lock.json` 為 `npm i` 副作用(`resolved` 欄移除、頂層 version 跟到 1.0.46),是否採用由主控決定;④ quiet-run 回報 `web-tests` 槽有殘留鎖(owner=w-serv-webdata,pid 已不存在),未處理.

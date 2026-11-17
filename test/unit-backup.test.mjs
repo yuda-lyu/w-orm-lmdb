@@ -99,6 +99,61 @@ describe('backup', function() {
         return ns.length
     }
 
+    //mkWriter, 同程序之持續寫入者(以wo.insertBulk, 每批nPer筆、批號n由0起連續, 故任一提交點之資料必為[批0至批m-1各完整]之前綴):
+    //nIssued為已發出之批數(下一批之批號), nBatch為已提交之批數(批依序發出與提交, 故批號小於nBatch者皆已提交);
+    //每批提交即通知等候者(以事件同步, 不以延時偵測), 寫入失敗則等候者reject; stop設為true後於下一批前結束, pm於結束時resolve(寫入錯誤記於err)
+    let mkWriter = (wo, nPer) => {
+        let pad = 'x'.repeat(2000)
+        let st = { nIssued: 0, nBatch: 0, stop: false, err: null, pm: null, waitFor: null }
+        let waiters = []
+        let notify = () => {
+            for (let x of waiters.slice()) {
+                if (st.err !== null) {
+                    waiters.splice(waiters.indexOf(x), 1)
+                    x.reject(st.err)
+                }
+                else if (x.pred()) {
+                    waiters.splice(waiters.indexOf(x), 1)
+                    x.resolve()
+                }
+            }
+        }
+        st.waitFor = (pred) => new Promise((resolve, reject) => {
+            if (st.err !== null) {
+                reject(st.err)
+            }
+            else if (pred()) {
+                resolve()
+            }
+            else {
+                waiters.push({ pred, resolve, reject })
+            }
+        })
+        st.pm = (async() => {
+            try {
+                for (;;) {
+                    if (st.stop) {
+                        break
+                    }
+                    let n = st.nIssued++
+                    let docs = []
+                    for (let i = 0; i < nPer; i++) {
+                        docs.push({ id: `b${n}-${i}`, n, i, pad })
+                    }
+                    await wo.insertBulk(docs)
+                    st.nBatch++
+                    notify()
+                    await new Promise((resolve) => setImmediate(resolve))
+                }
+            }
+            catch (err) {
+                st.err = err
+                notify()
+            }
+        })()
+        return st
+    }
+
     before(function() {
         w.fsDeleteFolder(root)
         fs.mkdirSync(root, { recursive: true })
@@ -689,62 +744,74 @@ describe('backup', function() {
     })
 
     describe('一致性(備份時有寫入)', function() {
-        it('同程序持有環境且寫入進行中: 連續備份, 每份皆為[批0至批m-1各完整]之前綴, 且寫入不被阻擋', async function() {
+        //事件同步(不以延時或寫入總批數之門檻偵測): 對應src/WOrmLmdb.mjs之backup JSDoc「不致產生撕裂…亦不阻擋寫入。快照含呼叫前已await完成之寫入」與帳本R-BACKUP-01規則1
+        //  ①一致性: 每份快照皆為[批0至批m-1各完整]之前綴, 且至少含備份呼叫前已提交之批(nBefore), 至多為備份結束時已提交之批加1批(進行中者), 先後各份之批數不減;
+        //  ②不阻擋寫入: 「備份呼叫之後才發出之批, 於該備份結束(settle)之前已提交」(見證)——被阻擋(備份期間寫入須等備份結束: 同步複製令事件迴圈停擺、以鎖或佇列使寫入排於備份之後)時,
+        //    該批必於備份結束之後才提交, 任何一次備份皆不會有見證; 未被阻擋時, 該批之提交與備份之複製並行, 是否於單次備份結束前完成取決於兩者之相對快慢(備份窗口與一次提交相近, 實測單份備份見證之機率約13%至83%),
+        //    故以事件等待見證出現(每份備份各為一次機會, 逐份皆驗證一致性), nMax僅為防懸置上限(阻擋時永不出現見證), 不表達規格, 亦不隨負載調整;
+        //    不以填充大量資料放大備份窗口(大型資料庫加持續寫入時備份耗時暴增, 見sgud經驗檔2026-11-18條)
+        it('同程序持有環境且寫入進行中: 連續備份, 每份皆為[批0至批m-1各完整]之前綴, 且備份期間寫入不被阻擋(備份呼叫後才發出之批, 於該備份結束前已提交)', async function() {
             let wo = mkWo()
+            let nPer = 40
+            let wt = mkWriter(wo, nPer)
             try {
-                let nPer = 40
-                let pad = 'x'.repeat(2000)
-                let nBatch = 0
-                let stop = false
-                let pmWrite = (async() => {
-                    for (;;) {
-                        if (stop) {
-                            break
-                        }
-                        let n = nBatch
-                        let docs = []
-                        for (let i = 0; i < nPer; i++) {
-                            docs.push({ id: `b${n}-${i}`, n, i, pad })
-                        }
-                        await wo.insertBulk(docs)
-                        nBatch++
-                        await new Promise((resolve) => setImmediate(resolve))
-                    }
-                })()
+                //先寫入一些批(等寫入端提交第5批之事件)
+                await wt.waitFor(() => wt.nBatch >= 5)
 
-                //先寫入一些批
-                for (;;) {
-                    if (nBatch >= 5) {
-                        break
-                    }
-                    await new Promise((resolve) => setTimeout(resolve, 5))
-                }
-
+                let nMin = 5
+                let nMax = 150
+                let nTry = 0
+                let nWitness = 0
                 let sizes = []
-                for (let k = 0; k < 5; k++) {
-                    let nBefore = nBatch
-                    let r = await wo.backup(tdir())
-                    let nAfter = nBatch
+                while (nTry < nMin || (nWitness === 0 && nTry < nMax)) {
+                    nTry++
+
+                    //備份呼叫當下: 已發出之批數nIssuedAt(批號小於此者已發出, 批號不小於此者皆為呼叫之後才發出)、已提交之批數nBefore
+                    let nIssuedAt = wt.nIssued
+                    let nBefore = wt.nBatch
+                    let t = tdir()
+
+                    //備份結束(settle)當下已提交之批數nAtSettle(於結束之回調內同步取得, 與寫入端之提交依事件先後排序)
+                    let nAtSettle = -1
+                    let r = await wo.backup(t).then((x) => {
+                        nAtSettle = wt.nBatch
+                        return x
+                    })
+                    assert.strict.equal(wt.err, null, 'writer should not fail')
+
+                    //①一致性
                     let wr = restore(r.fpData)
                     try {
                         let m = chkPrefix(await wr.select(), nPer, nBefore)
-                        assert.strict.ok(m <= nAfter + 1, `snapshot batches ${m} should not exceed written ${nAfter}`)
+                        assert.strict.ok(m <= nAtSettle + 1, `snapshot batches ${m} should not exceed written ${nAtSettle}`)
                         sizes.push(m)
                     }
                     finally {
                         await wr.close()
+                        w.fsDeleteFolder(wr.dirUrl)
+                        w.fsDeleteFolder(t)
+                    }
+
+                    //②見證: 批號nIssuedAt為備份呼叫之後才發出之第一批, 已提交(nBatch > nIssuedAt)而備份尚未結束
+                    if (nAtSettle > nIssuedAt) {
+                        nWitness++
                     }
                 }
-                stop = true
-                await pmWrite
+                wt.stop = true
+                await wt.pm
+                assert.strict.equal(wt.err, null, 'writer should not fail')
 
-                //備份期間寫入持續進行(未被阻擋), 各份之批數隨時間不減
-                assert.strict.ok(nBatch > 5 + 5, `writer should keep progressing, got ${nBatch}`)
+                assert.strict.ok(nTry >= nMin, `backups ${nTry} < ${nMin}`)
+                assert.strict.ok(nWitness > 0, `writes issued after backup() was called should be committed before that backup() settles (blocked by backup?): witness 0 in ${nTry} backups, writer committed ${wt.nBatch} batches`)
+
+                //各份之批數隨時間不減
                 for (let i = 1; i < sizes.length; i++) {
                     assert.strict.ok(sizes[i] >= sizes[i - 1], `snapshots should not shrink: ${sizes.join(',')}`)
                 }
             }
             finally {
+                wt.stop = true
+                await wt.pm
                 await wo.close()
             }
         })
@@ -775,7 +842,8 @@ describe('backup', function() {
             try {
                 await waitMsg((m) => m.ready === true)
 
-                //填充使資料庫檔約80MB, 備份耗時而與持續之寫入重疊(直接複製檔案之錯誤作法於此條件下必撕裂)
+                //填充4萬列, 於 compression: true 下資料庫檔實測約6MB(相同內容之 pad 可壓縮), 備份窗口不長, 故不依賴備份與寫入重疊之長短;
+                //斷言之下界由事件閘門決定(見下), 鑑別力在檢出缺筆, 批不連續, 填充列不全(直接複製檔案之錯誤作法於本機未見撕裂, 見帳本R-BACKUP-01已知限制①)
                 let nFill = 40000
                 child.send({ cmd: 'fill', n: nFill })
                 await waitMsg((m) => m.filled === true, 120000)
