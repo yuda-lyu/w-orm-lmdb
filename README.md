@@ -191,6 +191,40 @@ Not covered by these options: what the underlying `lmdb-js` driver writes itself
 - Changed: a failure in the msgpack encoder, which used to reach the caller as `can not <op> by data[<k>], <encoder message>` with the original text, has credentials in `<encoder message>` replaced by `***`.
 - Unchanged: every resolved value, every event payload and the timing of events; the text of the errors this package composes itself.
 
+### Primary key: not given vs. given (主鍵之未帶與給了)
+
+Only three values count as **not given**: `id` is `undefined`, `null` or the empty string (an absent key is `undefined`). With `autoGenPk: true` (default) a row that does not give its primary key gets a generated one; with `autoGenPk: false` the whole call rejects (`can not <insert|insertBulk|save> by data[<k>] without valid id when autoGenPk is false`).
+
+Anything else the caller gave is **given**, and is accepted only if it is a well-formed non-empty string. A number, boolean, object, array, `String` wrapper, `Symbol`, `BigInt`, function or `Date` is refused with `invalid id: not a string at [data[<k>].id]` (fixed words, the value is never echoed) and is **never replaced by a generated primary key**: replacing it would write a row under an identity the caller did not choose, and nothing could map it back afterwards. The refusal does not depend on `autoGenPk`, and it follows the channel each call already used for an invalid primary key:
+
+| Call | Result for a given non-string `id` |
+|---|---|
+| `insert`, `insertBulk` | the whole call rejects, nothing is written, one `error` event before the rejection |
+| `save` | that row gets `ok: 0` with `err`; the other rows are saved |
+| `del` | that row gets `ok: 0` with `err` (unchanged) |
+| `selectByPk` | `null`, no event (unchanged) |
+
+### Input that throws when it is read (讀取即拋錯之輸入)
+
+Some values throw as soon as they are read: a revoked `Proxy`, an object whose `Symbol.toStringTag` getter throws, a `Proxy` whose `ownKeys` trap throws, an array whose element `[0]` is a throwing accessor. The type checks of `wsemi` answer `false` for them without throwing, so a value that merely has the wrong type and a value that cannot be read used to look the same and were silently treated as "invalid input" or replaced by the default. After a check says "no", this package now asks `chkReadable` of `wsemi` which of the two it is (the probe runs only after the check returned `false`, so valid input is not read an extra time):
+
+| Where | Wrong type but readable (unchanged) | Cannot be read (new) |
+|---|---|---|
+| `new WOrmLmdb(opt)`: `opt.url`, `opt.db`, `opt.cl`, `opt.useCache`, `opt.autoGenPk`, and `opt` itself | ignored, the default is used | the constructor throws `invalid opt.<name>: must be a readable value` (`invalid opt: ...` for `opt` itself) before anything is opened or created |
+| `insert`, `insertBulk`, `save`, `del`: `data` | `insert`/`insertBulk` resolve `{ n: 0, nInserted: 0, ok: 1 }` (`insert` with `returnList: true` resolves `[]`), `save`/`del` resolve `[]` | the call rejects with `invalid data: must be a readable value`, one `error` event, nothing written |
+| `insert`: `option.returnList`; `save`: `option`; `backup`: `option.compact` | a non-boolean is ignored, the default is used | the call rejects with `invalid option: must be a readable value` or `invalid option.<name>: must be a readable value`, one `error` event |
+| `selectByPk(pk)` | `null` | the call rejects with `invalid pk: must be a readable value`, one `error` event |
+
+The `error` event of these rejections carries `null` as `data`: the unreadable value is not handed to your subscribers. `select(find)` and `delAll(find)` already refuse such a condition with `invalid find: ...` (unchanged). An option member that is an accessor which throws cannot be detected by `chkReadable` (it never calls accessors): the original error is kept, but a failure while reading `option` at the start of `insert` and `save` now also emits one `error` event. An unreadable value **inside** the data, such as an array element or an `id` property that is itself a revoked `Proxy`, makes the copy of the data fail. That is still rejected through the existing channel (the whole call rejects, one `error` event, nothing written) with the text the value threw, and it is never replaced by a generated key; `invalid data[<k>]: ...` appears only for an element that can be copied but whose type tag cannot be read afterwards.
+
+### Breaking changes (破壞性變更: given primary key and unreadable input)
+
+There is no transition period.
+
+- Changed: `insert`, `insertBulk` and `save` used to replace a **given** primary key that is not a string (for example `{ id: 5 }`, `{ id: new String('a') }`) with a generated one when `autoGenPk` was `true`, and wrote the row under the new key; they now refuse it (`invalid id: not a string at [data[<k>].id]`; `save`: that row gets `ok: 0`). Pass strings, or leave `id` out (`undefined`, `null`, `''`) to get a generated key. With `autoGenPk: false` the same input used to be reported as `can not <fn> by data[<k>] without valid id when autoGenPk is false`; it now gets the `invalid id: not a string ...` message too, and `save` reports it per row instead of rejecting the whole call.
+- Changed: the unreadable inputs in the table above used to be ignored (the default was used, `insert`/`insertBulk`/`save`/`del` answered as for invalid input, `selectByPk` answered `null`) or surfaced as the engine's own `TypeError` text; they now fail with `invalid <name>: must be a readable value` through the channel of the call. A revoked `Proxy` as `option` of `insert` or `save` used to reject without an `error` event; it now emits one.
+- Unchanged: every well-typed input, every resolved value, and the handling of wrong-typed but readable input.
+
 ## Documentation
 To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-orm-lmdb/WOrm.html).
 

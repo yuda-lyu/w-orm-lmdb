@@ -479,11 +479,12 @@ describe('wellformed', function() {
             assert.strict.equal(fs.existsSync(url), false)
         })
 
-        it('autoGenPk為true時未帶有效id之筆先補主鍵再檢核: 照常寫入; 其資料不合格者仍拒收(訊息為資料路徑)', async function() {
+        //未帶主鍵僅undefined、null與空字串(含鍵不存在); 給了而非字串者(如數字)不補值, 依固定詞彙拒絕(R-PKGIVEN-01, 見unit-pkgiven.test.mjs), 不在此列
+        it('autoGenPk為true時未帶id之筆先補主鍵再檢核: 照常寫入; 其資料不合格者仍拒收(訊息為資料路徑)', async function() {
             for (let fn of ['insert', 'insertBulk', 'save']) {
                 let wo = freshBackend()
                 try {
-                    let r = await wo[fn]([{ name: 'a' }, { id: '', name: 'b' }, { id: 12345, name: 'c' }])
+                    let r = await wo[fn]([{ name: 'a' }, { id: '', name: 'b' }, { id: null, name: 'c' }])
                     if (fn === 'save') {
                         assert.strict.deepStrictEqual(r.map((v) => v.ok), [1, 1, 1], fn)
                     }
