@@ -325,8 +325,9 @@ describe('writeerror', function() {
         assert.strict.deepStrictEqual(vget[8], vans[8])
     })
 
+    //全族口徑A3(2026-11-20改釘): 複製階段拋錯之巢狀不可讀值(取值拋錯之getter)轉固定詞彙, 不再轉出getter拋出之文字(原為'getter boom'); error事件先於reject、恰一次、不寫入之通道不變
     it(`should get error event before reject for input which can not be cloned`, async function() {
-        let exp = _.map(vget[9], (v) => ({ key: v.key, r: 'reject', msg: 'getter boom', evSame: true, at: 0, later: 0, evBeforeReject: true }))
+        let exp = _.map(vget[9], (v) => ({ key: v.key, r: 'reject', msg: 'invalid data: must be a readable value', evSame: true, at: 0, later: 0, evBeforeReject: true }))
         assert.strict.deepStrictEqual(vget[9], exp)
     })
 

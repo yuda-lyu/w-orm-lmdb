@@ -207,3 +207,19 @@
 - **存取器拋錯維持原文字**: `unit-save-merge` 既有案釘住 `option.merge` 之 getter 拋錯文字(`merge getter failed`);chkReadable 不呼叫存取器,故容器可讀而成員為存取器拋錯者不轉固定詞彙(w-orm-mongodb 轉了,與全族不一致,列待裁示).
 - **探針副本與變異之作法**(同第 387 項之作法): `tmp/oro557c/mut/{src,test}/` 副本,`mutate.mjs` 逐項改壞副本 src 之一處、對副本 test 跑新增兩檔,`from` 須於原始碼恰出現一次,對照組 M00 須全綠;repo 之 src 與 test 全程不動.R12(探針移到判斷函數之前)與 R17(自有鍵之讀取不限標籤)行為不變,僅站點盤點案抓到——此類「有效輸入多讀」之退化無法由行為測試鑑別,須由版面盤點鎖定.
 - **修前紅之 `after` 鉤子**: 修前副本對不可讀之建構參數不 throw 而留下未關閉之實例,`after` 之 `fs.rmSync` 於 Windows 失敗,計為 1 個失敗(紅 168 = 167 案 + 鉤子 1);與產品行為無關,不必為此改鉤子.
+
+## 第 557 項全族對齊輪(A1~A6;oro557c2,2026-11-20)之經驗
+
+- **先以同一探針量「修前 = 已發布版」再逐代號判已合/不合**: `tmp/<名>/probe.mjs` 以 src 路徑為參數,對 HEAD 與工作樹各跑一次(371 格),`cmp.mjs` 逐格比對(排除隨機 uuid);已合者(A1 之 `invalid option`/`invalid opt`、A5、A6)不改碼只補釘.實測才發現兩處條款未點名之缺口: ① 已關閉之實例(`procClosed`)收到不可讀之資料容器時,error 事件之 `data` 仍是呼叫端原值;② `save` 之 `option.merge` 讀取位於主 try 內,存取器拋錯時 error 事件之 `data` 為輸入(非 `null`).
+- **(已被第三輪 oro557c3 取代,見下節;留作歷史)複製階段之 catch 要分辨「不可讀」與「過深巢狀」**: 條款說 `cloneDeep` 拋錯一律轉 `invalid data`,但過深之巢狀(實測 20000 層)於 lodash `cloneDeep` 拋引擎之 `RangeError: Maximum call stack size exceeded`,既非不可讀值、文字亦非呼叫端物件所拋,轉成 `must be a readable value` 會誤導且屬 A1~A6 以外之行為改變,故以 `isDeepErr`(`instanceof RangeError` 且訊息含 `call stack`)保留原通道;**不可只判 `instanceof RangeError`**——使用端 getter 自拋之 `RangeError('...')` 會洩出其文字(變異 N10 抓到).`isDeepErr` 之讀取須包 try(拋出物件為已撤銷之 Proxy 時 `instanceof` 本身會拋).
+- **把資料複製移到主 try 之前(`cloneIn`)比在 catch 內認標記簡單**: 原 `cloneDeep(data)` 在主 try 內,失敗後走共用之 catch(重設快取、`emitError(mode, data, …)` 帶原值)——要使 `data` 為 `null` 且不重設快取,需於各 catch 認標記;改為主 try 之前呼叫 `cloneIn(mode, data)`(回 `{ ok, data|res }`),不可讀者直接走既有之 `procUnreadableData`(與頂層不可讀同一函數),過深者於 `cloneIn` 內重現原通道.`procPk` 元素站點仍在主 try 內(複製後型別標籤才不可讀,僅一次性夾具可達),以 `mkInErr` 登記於 `WeakSet`、catch 內 `data = null`.
+- **測試之斷言不可把「可能是不可讀之值」放進 `deepStrictEqual` 之期望/實際**: 修前或變異版之 error 事件 `data` 為已撤銷之 Proxy 時,`assert.deepStrictEqual` 之差異輸出(`util.inspect`)會使 mocha 行程直接結束(離開碼 0、無 `passing` 摘要,`quiet-run` 警告「未見測試摘要行」),變異因此顯示「0 pass 0 fail」而誤判存活;改比對布林(`v.data === null`).變異腳本遇 `pass+fail===0` 須標為未判定而非存活.
+- **改釘之既有測試要分辨「失去之接縫」**: `unit-diagerr` 之 R-DIAG-01-7 四案與 T07、R01 原以「資料 getter 拋出外來錯誤」為接縫驗 `outErr` 遮罩;A3 後該接縫轉為固定詞彙(文字不再進入 catch),T07、R01 改以 `Unpackr.prototype.decode`(`selectByPk` 之解碼接縫)取外來 reject,四案改驗固定詞彙、無洩漏與 `data` 為 `null`.insert/insertBulk/save/del 整批 catch 之 `outErr` 已無可由使用端輸入觸發之外來錯誤接縫(lmdb 之 `LMDBStore` 類別於每次 `open` 另建,無法以共用原型注入),僅由 `unit-diagsite` 之站點計數鎖住其存在.
+- **全族對齊輪之變異做法**: 沿用上輪 `mutate.mjs` 之結構(副本 src + 副本 test、`from` 恰出現一次、多處者以 `nth` 指定、對照組全綠),第一輪變異集重跑(P1~P6、R1~R17;R6、R8、R9 因程式碼形狀改變而由 A1/A2/A3 新變異取代),另就改動代號各增 2 項以上;每個呼叫點(`cloneIn` 四處、`inErrs` 三處 catch)逐點植入(skill role-coder-for-test §1 第 6 點).
+
+## 第 557 項收尾輪(oro557c3,2026-11-20)之經驗
+
+- **「不分辨原因」的實作是刪碼,不是加碼**: 主控裁示複製處之 catch 不分辨原因(過深之巢狀亦轉固定詞彙)後,`cloneIn` 之 catch 退為無條件 `procUnreadableData(mode)`,`isDeepErr` 與其原通道(`_cache = null`、`outErr`、`emitError(mode, data, …)`、`Promise.reject`)整段移除,`res = outErr(err)` 與 `Promise.reject(res)` 之站點計數(`unit-diagsite`)由 9 回 8;第二輪「分辨過深」之判準(`instanceof RangeError` 且訊息含 `call stack`)連同其已知限制(使用端自拋同訊息之 `RangeError` 無從區分)一併消失.
+- **刪除分支後要補「反面之變異」**: 原 N11(`isDeepErr` 恆假)即新碼,故新變異以「把舊分支加回去」之不同形狀逐一植入(C1 `instanceof RangeError` 走原通道、C2 以 `call stack` 訊息分辨、C3 固定詞彙但 `data` 為輸入、C4 固定詞彙但不發事件、C5 重拋、C6 轉出引擎文字、C7 僅使用端自拋者走原通道),各由不同斷言擊殺;C8(不可讀者另重設快取)為行為等價(複製失敗時尚未寫入,快取原即有效),預期存活,不以斷言硬殺.
+- **過深巢狀之夾具要兩種形狀**: 物件鏈 `{ n: { n: … } }` 與陣列鏈 `{ n: [[[…]]] }` 各 20000 層,另加「列內含過深者」(`[row, deep]`);lodash `cloneDeep` 對兩種形狀皆溢位,但走不同分支(物件與陣列),避免只釘一種.測試並驗「固定詞彙而非引擎之 `RangeError`」(`!(err instanceof RangeError)` 且訊息不含 `call stack`)與「拒絕後同一實例之 `select`/`insert` 照常」.
+- **自拋 `RangeError` 之案要含「與引擎同文」者**: 第二輪之案只含自拋他文字之 `RangeError`(證明不被誤判為過深);不分辨後,自拋 `'Maximum call stack size exceeded'` 者亦須為 `invalid data`,補一種即同時釘住「不以訊息分辨」(變異 C2 抓到).

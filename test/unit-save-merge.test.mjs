@@ -524,11 +524,12 @@ describe('save-merge', function() {
                         throw new Error('merge getter failed')
                     },
                 }
+                //全族口徑A2與A4(2026-11-20改釘; 原為getter拋出之原文字'merge getter failed'): 存取器拋錯轉固定詞彙, 不轉出拋出之文字, 先於reject恰發出一次error事件(data為null)
                 let rt = await settle(wo.save({ id: 'og1', a: 2 }, option))
-                assert.strict.deepStrictEqual(rt, { ok: false, msg: 'merge getter failed' })
+                assert.strict.deepStrictEqual(rt, { ok: false, msg: 'invalid option.merge: must be a readable value' })
                 assert.strict.deepStrictEqual(_.map(evs, 'ev'), ['error'])
                 assert.strict.deepStrictEqual(evs[0].mode, 'save')
-                assert.strict.deepStrictEqual(evs[0].err, 'merge getter failed')
+                assert.strict.deepStrictEqual(evs[0].err, 'invalid option.merge: must be a readable value')
                 assert.strict.deepStrictEqual(await wo.selectByPk('og1'), { id: 'og1', old: 1 })
             })
         })

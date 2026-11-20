@@ -208,16 +208,18 @@ describe('pkgiven', function() {
                 })
             }
 
-            //S2: id值本身(自有屬性)為不可讀者於資料複製階段(cloneDeep)即拋錯: 屬既有行為(整批reject, error事件恰一次, 不寫入, 不補值), 訊息為該物件所拋之值
+            //S2: id值本身(自有屬性)為不可讀者於資料複製階段(cloneDeep)即拋錯: 全族口徑A3(2026-11-20改釘; 原訊息為該物件所拋之值)轉固定詞彙invalid data: must be a readable value,
+            //整批reject(含save與del), error事件恰一次, 不寫入, 不補值
             for (let c of [{ name: 'revoked Proxy', make: genRevoked }, { name: 'Symbol.toStringTag throws', make: genTagThrow }, { name: 'ownKeys throws', make: genOwnKeysThrow }]) {
                 for (let api of ['insert', 'insertBulk', 'save', 'del']) {
-                    it(`${api}: own property id is ${c.name}, rejected at the copy stage and never replaced`, async function() {
+                    it(`${api}: own property id is ${c.name}, rejected at the copy stage as unreadable and never replaced`, async function() {
                         await withWo(async(wo, evs) => {
                             let r = await settle(wo[api]({ id: c.make(), name: 'n' }))
                             assert.strictEqual(r.ok, false)
+                            assert.strictEqual(msgOf(r.err), 'invalid data: must be a readable value')
                             assert.deepStrictEqual(await ids(wo), ['seed'])
-                            assert.strictEqual(nErr(evs, api), 1)
-                            assert.strictEqual(evs.filter((v) => v.type === 'change').length, 0)
+                            assert.deepStrictEqual(evs, [{ type: 'error', mode: api, err: 'invalid data: must be a readable value' }])
+                            noSecret(r.err, evs)
                         }, { autoGenPk })
                     })
                 }

@@ -139,17 +139,25 @@ describe('diagerr', function() {
 
     describe('外來值經diag.err: 含憑證之外來reject被遮(站點 x 出口)', function() {
 
-        //整批性catch站點(使用端資料之getter拋錯)
+        //入口階段(全族口徑A3, 2026-11-20改釘): 使用端資料之getter拋錯於資料複製階段(cloneDeep)屬巢狀不可讀值, 轉固定詞彙invalid data: must be a readable value,
+        //不轉出使用端物件拋出之文字(原為同型別副本且憑證被遮之外來錯誤, 該接縫已關閉); 憑證不得出現於reject、error事件之任何呈現, error事件之data為null
         for (let [name, call] of [
             ['insert', (w) => w.insert(badData())],
             ['insertBulk', (w) => w.insertBulk(badData())],
             ['save', (w) => w.save(badData())],
             ['del', (w) => w.del(badData())],
         ]) {
-            it(`R-DIAG-01-7 ${name}: 使用端回呼(資料getter)拋出含憑證之錯誤 → reject為同型別副本且憑證被遮, 'error'事件之訊息同源`, async function() {
+            it(`R-DIAG-01-7 ${name}: 使用端回呼(資料getter)拋出含憑證之錯誤 → reject為固定詞彙(不轉出拋出之文字, 憑證不外洩), 'error'事件恰一次且訊息同源、data為null`, async function() {
                 let { w, evs } = mkW()
                 let { err } = await settle(call(w))
-                assertMasked(err, evs, name)
+                assert.ok(err instanceof Error, `reject值應為Error: ${String(err)}`)
+                assert.strictEqual(err.message, 'invalid data: must be a readable value')
+                noLeak(err)
+                let k = evs.filter((v) => v.mode === name)
+                assert.strictEqual(k.length, 1, `'error'事件應發出一次: ${evs.map((v) => v.mode)}`)
+                assert.strictEqual(k[0].msg, err.message, '\'error\'事件之訊息與reject同源')
+                assert.strictEqual(k[0].data, null, '入口階段拒絕之error事件, data為null')
+                noLeakText(k[0].msg)
             })
         }
 
@@ -340,7 +348,9 @@ describe('diagerr', function() {
             let ctx = ctxOf()
             let value = c.make(ctx)
             let { w, evs } = mkW()
-            let { err } = await settle(w.insert(badData('t07', () => value)))
+            //接縫為解碼(使用端之資料getter拋錯於2026-11-20起轉固定詞彙, 見上, 不再轉出拋出值)
+            await w.insert({ id: 't07', a: 1 })
+            let { err } = await withDecodeError(() => settle(w.selectByPk('t07')), () => value)
             assert.strictEqual(c.expect.check(err, ctx), true)
             assert.strictEqual(verifyCase(c, err, ctx), null)
             assert.strictEqual(evs.length, 1)
@@ -353,7 +363,9 @@ describe('diagerr', function() {
             let ctx = ctxOf()
             let value = c.make(ctx)
             let { w } = mkW()
-            let { err } = await settle(w.insert(badData('r01', () => value)))
+            //接縫為解碼(同T07)
+            await w.insert({ id: 'r01', a: 1 })
+            let { err } = await withDecodeError(() => settle(w.selectByPk('r01')), () => value)
             assert.strictEqual(c.expect.check([value, err], ctx), true)
         })
 

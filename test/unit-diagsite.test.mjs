@@ -82,8 +82,8 @@ describe('diagsite', function() {
             assert.deepStrictEqual(calls.map((l) => l.match(re)[1]).sort(), ['change', 'error'])
         })
 
-        it('R-DIAG-01-9 外來值之catch站點全集: 7個操作站點經outErr、入口階段(option與data之讀取, R-READABLE-01)之rejectIn經outErr、2個逐筆經outMsg、編碼失敗與backup之訊息經outMsg、建構時open失敗經diag.err; 無未經遮罩之res = err', function() {
-            assert.strictEqual(count(/res = outErr\(err\)/g), 8, 'select、selectByPk、insert、insertBulk、save、del、delAll與入口階段之rejectIn')
+        it('R-DIAG-01-9 外來值之catch站點全集: 7個操作站點經outErr、入口階段(option與data之讀取與複製, R-READABLE-01)之rejectIn經outErr、2個逐筆經outMsg、編碼失敗與backup之訊息經outMsg、建構時open失敗經diag.err; 無未經遮罩之res = err', function() {
+            assert.strictEqual(count(/res = outErr\(err\)/g), 8, 'select、selectByPk、insert、insertBulk、save、del、delAll與入口階段之rejectIn(資料複製處之拋錯亦經rejectIn, 無獨立之原通道)')
             assert.strictEqual(count(/\berr: outMsg\(err\)/g), 2, 'save與del逐筆err')
             assert.strictEqual(count(/\$\{outMsg\(err\)\}/g), 2, '編碼失敗之訊息後綴與backup之訊息')
             assert.strictEqual(count(/throw diag\.err\(err\)/g), 1, '建構時open失敗')
@@ -92,17 +92,17 @@ describe('diagsite', function() {
             assert.strictEqual(count(/ownErrs\.has\(err\)/g), 3, 'outErr、outMsg與backup各一')
         })
 
-        it('R-DIAG-01-9 本套件自身之錯誤全集: new Error僅6處(建構時良構檢核與不可讀檢核共3處[opt成員之良構、opt本身與opt成員之不可讀, R-READABLE-01]、mkErr、已關閉之立即reject、backup之reject包裝), 其餘一律mkErr登記', function() {
+        it('R-DIAG-01-9 本套件自身之錯誤全集: new Error僅6處(建構時良構檢核與不可讀檢核共3處[opt成員之良構、getOptVal之opt本身與拋錯存取器之不可讀、chkOptReadable之opt成員值之不可讀, R-READABLE-01]、mkErr、已關閉之立即reject、backup之reject包裝), 其餘一律mkErr登記', function() {
             let ls = lines.filter((l) => /new Error\(/.test(l)).map((l) => l.trim())
             assert.deepStrictEqual(ls, [
                 'throw new Error(`invalid opt.${name}: ${r}`)', // eslint-disable-line no-template-curly-in-string
-                'throw new Error(\'invalid opt: must be a readable value\')',
+                'throw new Error(chkReadable(opt) !== \'\' ? \'invalid opt: must be a readable value\' : `invalid opt.${name}: must be a readable value`)', // eslint-disable-line no-template-curly-in-string
                 'throw new Error(`invalid opt.${name}: must be a readable value`)', // eslint-disable-line no-template-curly-in-string
                 'let err = new Error(msg)',
                 'return Promise.reject(new Error(msg))',
                 'return Promise.reject(new Error(msg))',
             ])
-            assert.strictEqual(count(/\bthrow (?!mkErr|bad|diag\.err|err\b|new Error\()/g), 0, 'throw之對象只可為mkErr、bad、diag.err、err(重拋)')
+            assert.strictEqual(count(/\bthrow (?!mkErr|mkInErr|bad|diag\.err|err\b|new Error\()/g), 0, 'throw之對象只可為mkErr、mkInErr(入口階段之mkErr, error事件之data為null)、bad、diag.err、err(重拋)')
         })
 
         it('R-DIAG-01-9 reject出口全集: Promise.reject之對象只可為檢核錯誤err(cvOrmFind, 2處)、已遮罩之res、或固定包裝new Error(msg)', function() {

@@ -109,11 +109,12 @@ U+FFFD本身與成對代理(emoji等)為良構，照常接受。既有資料不�
 insert與insertBulk整批reject(error事件恰一次，不寫入任何一筆)、save與del該筆ok為0並附err、selectByPk回null(不reject、不發事件)。</p>
 <p>讀取即拋錯之輸入(w-orm系列規則，R-READABLE-01，wsemi之chkReadable): 呼叫端給的資料容器(data)、選項(opt與option及其成員returnList、compact)與主鍵參數(selectByPk之pk)，其判斷函數判為無效之分支內，
 以chkReadable分辨「不可讀」(已撤銷之Proxy、Symbol.toStringTag拋錯者、ownKeys陷阱拋錯者、長度為1而[0]為存取器且拋錯之陣列)與「可讀而型別不符」：
-不可讀者依各入口原失敗通道拒絕，訊息為固定詞彙invalid &lt;名稱&gt;: must be a readable value(名稱為opt、opt.&lt;名&gt;、data、data[k]、option、option.&lt;名&gt;、pk；不含原例外文字與值)——
-建構為同步throw，insert、insertBulk、save、del、selectByPk與backup為error事件恰一次後reject(error事件之data為null，不把不可讀之值交給訂閱函數)，不寫入、不重設快取；
+不可讀者依各入口原失敗通道拒絕，訊息為固定詞彙invalid &lt;名稱&gt;: must be a readable value(名稱為opt、opt.&lt;名&gt;、data、option、option.&lt;名&gt;、pk；不含原例外文字與值)——
+建構為同步throw，insert、insertBulk、save、del、selectByPk與backup為error事件恰一次後reject(入口階段拒絕之error事件，其data為null，不把不可讀之值交給訂閱函數)，不寫入、不重設快取；
 可讀而型別不符者行為不變(輸入無效之通道：insert與insertBulk回{n:0,nInserted:0,ok:1}、returnList為true時insert回[]、save與del回[]、selectByPk回null、建構與非布林之option成員依預設)。
-chkReadable不呼叫存取器，opt或option之成員為存取器而拋錯者維持原錯誤(惟option於入口階段之拋錯亦走error事件恰一次後reject)；
-資料複製階段(cloneDeep)才拋錯之巢狀不可讀值(如id屬性本身為已撤銷之Proxy)維持原失敗通道(整批reject，error事件恰一次，不寫入)與原例外文字。</p>
+存取器拋錯(容器可讀而其成員為拋錯之getter，chkReadable不呼叫存取器，於讀取處捕捉)同樣轉固定詞彙(invalid opt.&lt;名&gt;、invalid option.&lt;鍵&gt;: must be a readable value)而走原通道，不轉出存取器拋出之文字；資料列(類別實例)之原型上之id存取器拋錯者(本套件讀取主鍵時才拋)同轉invalid data: must be a readable value，整批reject(含del)、error事件之data為null；
+資料複製階段(cloneDeep)拋錯之巢狀不可讀值(資料內之id、列之成員、陣列元素、二進位欄位等為已撤銷之Proxy或拋錯之存取器)同樣轉invalid data: must be a readable value，走與頂層不可讀相同之通道(error事件恰一次且data為null後reject，不寫入、不重設快取)，不分辨頂層與巢狀；
+複製處之拋錯不分辨原因：可讀而無法複製者與過深之巢狀(引擎之堆疊溢位)亦同轉invalid data: must be a readable value，走同一通道，不轉出引擎之錯誤文字。已關閉之實例收到資料容器不可讀之呼叫，error事件之data亦為null(可讀者仍為輸入數據)。</p>
 <p>一致性備份(w-orm-lmdb專屬擴充，系列其他後端無對應函數): backup(fpTar, { compact })以LMDB環境複製產生某一提交點之完整快照，服務運行中(本程序或另一程序寫入)亦一致，詳見backup之說明與README。</p>
 <p>診斷輸出(w-orm系列規則，遮罩與輸出出口為wsemi之getDiag、getDiagSecrets共用模組，選項語意以其說明為準): 本套件僅於change或error事件之訂閱函數拋錯時輸出診斷(該錯誤已被攔下，不影響操作結果)，輸出至console.log。
 預設只輸出固定標籤('change handler threw'、'error handler threw')與不含個資之摘要({ mode, errType, errCode })，不輸出資料值、id、使用者識別與錯誤原文；errCode僅取明列於wsemi代碼集合內者(系統與Node之機器代碼、MDB_xxx)。
@@ -128,7 +129,7 @@ opt.funLog給函數(label, safe, detail)時診斷輸出改只交給它而不寫c
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line100">line 100</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line101">line 101</a>
     </li></ul></dd>
     
 
@@ -460,7 +461,7 @@ opt.funLog給函數(label, safe, detail)時診斷輸出改只交給它而不寫c
                 </td>
             
 
-            <td class="description last"><p>輸入insert與save於數據未帶主鍵(本套件為id欄位，僅undefined、null、空字串視為未帶)時是否自動產生主鍵值，預設true；給false代表主鍵改由呼叫端自備，套件不產生亦不檢查其唯一性，未帶主鍵者將reject；給了而非字串者不隨此選項改變，一律拒絕(見主鍵之未帶與給了)。選項值不可讀(已撤銷之Proxy等)者建構時throw(invalid opt.autoGenPk: must be a readable value)，非布林之可讀值依預設</p></td>
+            <td class="description last"><p>輸入insert與save於數據未帶主鍵(本套件為id欄位，僅undefined、null、空字串視為未帶)時是否自動產生主鍵值，預設true；給false代表主鍵改由呼叫端自備，套件不產生亦不檢查其唯一性，未帶主鍵者將reject；給了而非字串者不隨此選項改變，一律拒絕(見主鍵之未帶與給了)。選項值不可讀(已撤銷之Proxy、拋錯之存取器等)者建構時throw(invalid opt.autoGenPk: must be a readable value)，非布林之可讀值依預設</p></td>
         </tr>
 
     
@@ -650,7 +651,7 @@ string contains NUL、string contains lone surrogate)。已關閉之實例整批
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1573">line 1573</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1640">line 1640</a>
     </li></ul></dd>
     
 
@@ -795,7 +796,7 @@ string contains NUL、string contains lone surrogate)。已關閉之實例整批
                 </td>
             
 
-            <td class="description last"><p>輸入設定物件，預設{}；讀取即拋錯者(如已撤銷之Proxy)整批reject(invalid option: must be a readable value)</p>
+            <td class="description last"><p>輸入設定物件，預設{}；讀取即拋錯者(如已撤銷之Proxy)整批reject(invalid option: must be a readable value)，其成員為拋錯之存取器者同樣轉固定詞彙(不轉出存取器拋出之文字)</p>
                 <h6>Properties</h6>
                 
 
@@ -858,7 +859,7 @@ string contains NUL、string contains lone surrogate)。已關閉之實例整批
                 </td>
             
 
-            <td class="description last"><p>輸入是否於備份時壓實(較慢但檔案較小)，預設true；僅布林值生效，其餘可讀值視同預設，讀取即拋錯者整批reject(invalid option.compact: must be a readable value)</p></td>
+            <td class="description last"><p>輸入是否於備份時壓實(較慢但檔案較小)，預設true；僅布林值生效，其餘可讀值視同預設，讀取即拋錯者(含存取器拋錯)整批reject(invalid option.compact: must be a readable value)</p></td>
         </tr>
 
     
@@ -934,7 +935,7 @@ string contains NUL、string contains lone surrogate)。已關閉之實例整批
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1270">line 1270</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1323">line 1323</a>
     </li></ul></dd>
     
 
@@ -1026,7 +1027,7 @@ string contains NUL、string contains lone surrogate)。已關閉之實例整批
 
             
 
-            <td class="description last"><p>輸入數據物件或陣列；id非字串(含未給)者該筆ok為0並附err，讀取即拋錯者整批reject(invalid data: must be a readable value)</p></td>
+            <td class="description last"><p>輸入數據物件或陣列；id非字串(含未給)者該筆ok為0並附err，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)</p></td>
         </tr>
 
     
@@ -1116,7 +1117,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1448">line 1448</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1515">line 1515</a>
     </li></ul></dd>
     
 
@@ -1294,7 +1295,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line726">line 726</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line756">line 756</a>
     </li></ul></dd>
     
 
@@ -1402,7 +1403,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
                 </td>
             
 
-            <td class="description last"><p>輸入數據物件或陣列；id給了而非字串者整批reject(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者整批reject(invalid data: must be a readable value)</p></td>
+            <td class="description last"><p>輸入數據物件或陣列；id給了而非字串者整批reject(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)</p></td>
         </tr>
 
     
@@ -1442,7 +1443,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
                 </td>
             
 
-            <td class="description last"><p>輸入設定物件，預設為{}；讀取即拋錯者(如已撤銷之Proxy)整批reject(invalid option: must be a readable value)</p>
+            <td class="description last"><p>輸入設定物件，預設為{}；讀取即拋錯者(如已撤銷之Proxy)整批reject(invalid option: must be a readable value)，其成員為拋錯之存取器者同樣轉固定詞彙(invalid option.&lt;鍵&gt;: must be a readable value，不轉出存取器拋出之文字)</p>
                 <h6>Properties</h6>
                 
 
@@ -1505,7 +1506,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
                 </td>
             
 
-            <td class="description last"><p>輸入是否改回傳逐筆結果布林值，預設false；非布林值忽略並用預設，讀取即拋錯者整批reject(invalid option.returnList: must be a readable value)。給true時回傳與輸入等長保序之陣列，各筆為{n,nInserted,ok}，nInserted為1即該筆為新增；聚合計數只回答有幾筆是新的，逐筆結果方能回答是哪幾筆，供下游僅對新資料執行昂貴動作。回傳形式由呼叫點靜態決定，共用之結果處理程式碼不可跨不同取值之呼叫點混用</p></td>
+            <td class="description last"><p>輸入是否改回傳逐筆結果布林值，預設false；非布林值忽略並用預設，讀取即拋錯者(含存取器拋錯)整批reject(invalid option.returnList: must be a readable value)。給true時回傳與輸入等長保序之陣列，各筆為{n,nInserted,ok}，nInserted為1即該筆為新增；聚合計數只回答有幾筆是新的，逐筆結果方能回答是哪幾筆，供下游僅對新資料執行昂貴動作。回傳形式由呼叫點靜態決定，共用之結果處理程式碼不可跨不同取值之呼叫點混用</p></td>
         </tr>
 
     
@@ -1585,7 +1586,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line864">line 864</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line903">line 903</a>
     </li></ul></dd>
     
 
@@ -1677,7 +1678,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
 
             
 
-            <td class="description last"><p>輸入數據物件或陣列；id給了而非字串者整批reject(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者整批reject(invalid data: must be a readable value)</p></td>
+            <td class="description last"><p>輸入數據物件或陣列；id給了而非字串者整批reject(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)</p></td>
         </tr>
 
     
@@ -1750,7 +1751,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line987">line 987</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1035">line 1035</a>
     </li></ul></dd>
     
 
@@ -1858,7 +1859,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
                 </td>
             
 
-            <td class="description last"><p>輸入數據物件或陣列；id給了而非字串者該筆ok為0並附err(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者整批reject(invalid data: must be a readable value)</p></td>
+            <td class="description last"><p>輸入數據物件或陣列；id給了而非字串者該筆ok為0並附err(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)</p></td>
         </tr>
 
     
@@ -1898,7 +1899,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
                 </td>
             
 
-            <td class="description last"><p>輸入設定物件，預設為{}；讀取即拋錯者(如已撤銷之Proxy)整批reject(invalid option: must be a readable value)</p>
+            <td class="description last"><p>輸入設定物件，預設為{}；讀取即拋錯者(如已撤銷之Proxy)整批reject(invalid option: must be a readable value)，其成員(autoInsert、merge)為拋錯之存取器者同樣轉固定詞彙(invalid option.&lt;鍵&gt;: must be a readable value，不轉出存取器拋出之文字；error事件恰一次且data為null，不寫入)</p>
                 <h6>Properties</h6>
                 
 
@@ -1961,7 +1962,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
                 </td>
             
 
-            <td class="description last"><p>輸入是否於儲存時發現原本無數據，則自動改以插入處理，預設為true；merge為false時同樣適用，已有數據者不受影響</p></td>
+            <td class="description last"></td>
         </tr>
 
     
@@ -2078,7 +2079,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line589">line 589</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line619">line 619</a>
     </li></ul></dd>
     
 
@@ -2257,7 +2258,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line661">line 661</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line691">line 691</a>
     </li></ul></dd>
     
 
@@ -2414,7 +2415,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Nov 20 2026 05:29:25 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Nov 20 2026 11:16:47 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
