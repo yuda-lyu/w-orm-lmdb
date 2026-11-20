@@ -223,3 +223,13 @@
 - **刪除分支後要補「反面之變異」**: 原 N11(`isDeepErr` 恆假)即新碼,故新變異以「把舊分支加回去」之不同形狀逐一植入(C1 `instanceof RangeError` 走原通道、C2 以 `call stack` 訊息分辨、C3 固定詞彙但 `data` 為輸入、C4 固定詞彙但不發事件、C5 重拋、C6 轉出引擎文字、C7 僅使用端自拋者走原通道),各由不同斷言擊殺;C8(不可讀者另重設快取)為行為等價(複製失敗時尚未寫入,快取原即有效),預期存活,不以斷言硬殺.
 - **過深巢狀之夾具要兩種形狀**: 物件鏈 `{ n: { n: … } }` 與陣列鏈 `{ n: [[[…]]] }` 各 20000 層,另加「列內含過深者」(`[row, deep]`);lodash `cloneDeep` 對兩種形狀皆溢位,但走不同分支(物件與陣列),避免只釘一種.測試並驗「固定詞彙而非引擎之 `RangeError`」(`!(err instanceof RangeError)` 且訊息不含 `call stack`)與「拒絕後同一實例之 `select`/`insert` 照常」.
 - **自拋 `RangeError` 之案要含「與引擎同文」者**: 第二輪之案只含自拋他文字之 `RangeError`(證明不被誤判為過深);不分辨後,自拋 `'Maximum call stack size exceeded'` 者亦須為 `invalid data`,補一種即同時釘住「不以訊息分辨」(變異 C2 抓到).
+
+## 第 569 項(olm569,2026-11-20): 主鍵只認自有可列舉之資料屬性之經驗
+
+- **先以探針量修前,再動碼**: `tmp/olm569/probe.mjs`(入口 4 × 形狀 11 × 庫內有無同值列 × `autoGenPk` = 176 格,輸出每格之回傳、庫內「消失之列」與「新增之列」,無 `id` 欄者標 `NO-ID-FIELD`)對修前與修後各跑一次,`diff` 即得改變之格(88 格 = 測試修前之紅案數);庫內有無同值列要兩種都做——同值列顯出跳過/覆寫/刪除(資料誤改、誤刪),無同值列顯出「無 id 欄」(主鍵遺失).
+- **判定順序是取值在前、查描述子在後**: 本庫 `getIdIn` 已含原型存取器拋錯之轉換(R-READABLE-01 規則 10),`isOwnPk`(`propertyIsEnumerable`)只分辨、不取值、不呼叫 getter;`isNoPk(getIdIn(v)) || !isOwnPk(v)` 使未帶者短路,有效輸入之讀取次序與次數同修前.顛倒順序(M07、M10、M11)之現形處是「繼承存取器 id 之 getter 讀取次數」,故讀取次數案不可省.
+- **`del` 之繼承存取器 id 為既有 2 次讀取**(整批預讀 `getIdIn` + 逐筆 `get(v, 'id')`),與 lowdb(1 次)不同;讀取次數之期望照本庫既有值釘(`del` 為 2),目的是釘「判定不增讀」,不是釘「恰為 1」.
+- **`procPk` 已先確認各筆為物件,`setPk` 不必另判非物件列**: 與 lowdb 之 `setPk`(該庫 `procPk` 無物件檢查,非物件列之原生 `TypeError` 須保留)不同;本庫 `insert([5])` 等早被 `can not insert by data[k] which is not an object` 擋下.
+- **lmdb 之 `ifNoExists`/`put` 以 `v.id` 為鍵、以 `v` 為值**: `procPk` 之後之複本其 `id` 必為自有可列舉(補值用 `defineProperty` 之資料屬性),故其後 `getWellFormedMsg`、`client.ifNoExists(v.id…)`、`save` 之 `getValue(v.id…)` 等站點不需逐一再判.
+- **測試以 `select` 取庫內之列,不排序依賴**: 本庫無「直讀庫檔」之便(lmdb 為二進位),各案先 `seed` 後以快照(JSON 字串排序)比對「既有列原封不動、恰多一列」;新增列以「不在快照內者」辨認,不依賴 `select` 之回傳順序;每案全新資料夾、`afterEach` 關閉實例(Windows 下實例未關則資料夾無法刪).
+- **變異腳本再次重寫**(第四份,`tmp/olm569/mutate.mjs`,結構同前: 副本 src + 副本 test、`from` 恰一次、對照組全綠): 已列於 `sgud/feedback/feedback.md`,建議抽提為共用變異執行器.

@@ -12,6 +12,8 @@ import { genRevoked, genTagThrow, genOwnKeysThrow, secrets } from './tools/hosti
 //  S2 給了而非字串(數字、布林、物件、陣列、String包裝物件、Symbol、BigInt、函數、Date、讀取即拋錯之物件等)一律拒絕invalid id: not a string at [data[k].id], 不回顯值, 不得靜默換成新主鍵
 //  S3 涵蓋所有收主鍵之入口(insert、insertBulk、save、del、selectByPk), 依各入口既有之失敗通道: insert與insertBulk整批reject(error事件恰一次, 不寫入)、
 //     save與del該筆ok為0附err(逐筆)、selectByPk回null; 失敗通道與S2之訊息皆不隨autoGenPk改變
+//  S4 (2026-11-20第569項改釘, 帳本R-PKOWN-01) 主鍵只認自有可列舉之資料屬性: 經類別實例之原型存取器(繼承)回傳之值, 不論為何(含不可讀之值)皆視為未帶, 不屬S2之「給了」;
+//     見下方「inherited, so treated as not given」之案; 詳細輸入空間見unit-pk-own
 //每案使用全新資料表(含一筆種子), 以select核對資料庫(使用者面之唯一讀取管道)
 
 
@@ -113,6 +115,9 @@ let mkInh = (make) => {
 
 let reMsg = 'invalid id: not a string at [data[0].id]'
 
+//reUuid, genIDSeq產生之主鍵(UUIDv7)
+let reUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
 
 describe('pkgiven', function() {
 
@@ -183,29 +188,33 @@ describe('pkgiven', function() {
                 })
             }
 
-            //S2: 讀取即拋錯之id(經原型存取器走到主鍵判定)同為給了而非字串, 依固定詞彙拒絕, 不替換
+            //S2、R-PKOWN-01(第569項改釘, 原釘為「給了而非字串, 依固定詞彙拒絕」): 讀取即拋錯之值經類別實例之原型存取器回傳(繼承)者,
+            //主鍵只認自有可列舉之資料屬性, 繼承者不論值為何一律視為未帶(依S1): autoGenPk為true補新主鍵寫入(不讀、不回顯該值), 為false依未帶整批reject(insert、insertBulk、save同)
             for (let c of unreadableIds) {
-                for (let api of ['insert', 'insertBulk']) {
-                    it(`${api}: ${c.name}`, async function() {
+                for (let api of ['insert', 'insertBulk', 'save']) {
+                    it(`${api}: ${c.name} is inherited, so treated as not given (R-PKOWN-01)`, async function() {
                         await withWo(async(wo, evs) => {
                             let r = await settle(wo[api](mkInh(c.make)))
-                            assert.strictEqual(r.ok, false)
-                            assert.strictEqual(msgOf(r.err), reMsg)
-                            assert.deepStrictEqual(await ids(wo), ['seed'])
-                            assert.deepStrictEqual(evs, [{ type: 'error', mode: api, err: reMsg }])
-                            noSecret(r.err, evs)
+                            if (autoGenPk) {
+                                assert.strictEqual(r.ok, true, `must resolve, rejected ${r.ok ? '' : msgOf(r.err)}`)
+                                let got = await ids(wo)
+                                assert.strictEqual(got.length, 2)
+                                assert.ok(got.includes('seed'))
+                                assert.ok(reUuid.test(got.find((x) => x !== 'seed')), `id must be generated, got ${JSON.stringify(got)}`) //補新主鍵, 不替換為繼承值
+                                assert.strictEqual(nErr(evs), 0)
+                                noSecret(r.v, evs)
+                            }
+                            else {
+                                let msg = `can not ${api} by data[0] without valid id when autoGenPk is false`
+                                assert.strictEqual(r.ok, false)
+                                assert.strictEqual(msgOf(r.err), msg)
+                                assert.deepStrictEqual(await ids(wo), ['seed'])
+                                assert.deepStrictEqual(evs, [{ type: 'error', mode: api, err: msg }])
+                                noSecret(r.err, evs)
+                            }
                         }, { autoGenPk })
                     })
                 }
-                it(`save: ${c.name}`, async function() {
-                    await withWo(async(wo, evs) => {
-                        let r = await wo.save(mkInh(c.make))
-                        assert.deepStrictEqual(r, [{ n: 1, nInserted: 0, nModified: 0, ok: 0, err: reMsg }])
-                        assert.deepStrictEqual(await ids(wo), ['seed'])
-                        assert.strictEqual(nErr(evs, 'save'), 1)
-                        noSecret(r, evs)
-                    }, { autoGenPk })
-                })
             }
 
             //S2: id值本身(自有屬性)為不可讀者於資料複製階段(cloneDeep)即拋錯: 全族口徑A3(2026-11-20改釘; 原訊息為該物件所拋之值)轉固定詞彙invalid data: must be a readable value,
