@@ -116,11 +116,12 @@ import getDiagSecrets from 'wsemi/src/getDiagSecrets.mjs'
  *
  * 讀取即拋錯之輸入(w-orm系列規則，R-READABLE-01，wsemi之chkReadable): 呼叫端給的資料容器(data)、選項(opt與option及其成員returnList、compact)與主鍵參數(selectByPk之pk)，其判斷函數判為無效之分支內，
  * 以chkReadable分辨「不可讀」(已撤銷之Proxy、Symbol.toStringTag拋錯者、ownKeys陷阱拋錯者、長度為1而[0]為存取器且拋錯之陣列)與「可讀而型別不符」：
- * 不可讀者依各入口原失敗通道拒絕，訊息為固定詞彙invalid &lt;名稱>: must be a readable value(名稱為opt、opt.&lt;名>、data、data[k]、option、option.&lt;名>、pk；不含原例外文字與值)——
- * 建構為同步throw，insert、insertBulk、save、del、selectByPk與backup為error事件恰一次後reject(error事件之data為null，不把不可讀之值交給訂閱函數)，不寫入、不重設快取；
+ * 不可讀者依各入口原失敗通道拒絕，訊息為固定詞彙invalid &lt;名稱>: must be a readable value(名稱為opt、opt.&lt;名>、data、option、option.&lt;名>、pk；不含原例外文字與值)——
+ * 建構為同步throw，insert、insertBulk、save、del、selectByPk與backup為error事件恰一次後reject(入口階段拒絕之error事件，其data為null，不把不可讀之值交給訂閱函數)，不寫入、不重設快取；
  * 可讀而型別不符者行為不變(輸入無效之通道：insert與insertBulk回{n:0,nInserted:0,ok:1}、returnList為true時insert回[]、save與del回[]、selectByPk回null、建構與非布林之option成員依預設)。
- * chkReadable不呼叫存取器，opt或option之成員為存取器而拋錯者維持原錯誤(惟option於入口階段之拋錯亦走error事件恰一次後reject)；
- * 資料複製階段(cloneDeep)才拋錯之巢狀不可讀值(如id屬性本身為已撤銷之Proxy)維持原失敗通道(整批reject，error事件恰一次，不寫入)與原例外文字。
+ * 存取器拋錯(容器可讀而其成員為拋錯之getter，chkReadable不呼叫存取器，於讀取處捕捉)同樣轉固定詞彙(invalid opt.&lt;名>、invalid option.&lt;鍵>: must be a readable value)而走原通道，不轉出存取器拋出之文字；資料列(類別實例)之原型上之id存取器拋錯者(本套件讀取主鍵時才拋)同轉invalid data: must be a readable value，整批reject(含del)、error事件之data為null；
+ * 資料複製階段(cloneDeep)拋錯之巢狀不可讀值(資料內之id、列之成員、陣列元素、二進位欄位等為已撤銷之Proxy或拋錯之存取器)同樣轉invalid data: must be a readable value，走與頂層不可讀相同之通道(error事件恰一次且data為null後reject，不寫入、不重設快取)，不分辨頂層與巢狀；
+ * 複製處之拋錯不分辨原因：可讀而無法複製者與過深之巢狀(引擎之堆疊溢位)亦同轉invalid data: must be a readable value，走同一通道，不轉出引擎之錯誤文字。已關閉之實例收到資料容器不可讀之呼叫，error事件之data亦為null(可讀者仍為輸入數據)。
  *
  * 一致性備份(w-orm-lmdb專屬擴充，系列其他後端無對應函數): backup(fpTar, { compact })以LMDB環境複製產生某一提交點之完整快照，服務運行中(本程序或另一程序寫入)亦一致，詳見backup之說明與README。
  *
@@ -139,7 +140,7 @@ import getDiagSecrets from 'wsemi/src/getDiagSecrets.mjs'
  * @param {String} [opt.db='worm'] 輸入使用資料庫名稱字串，預設'worm'；含孤立代理字元者建構時throw
  * @param {String} [opt.cl='test'] 輸入使用資料表名稱字串，預設'test'；含孤立代理字元者建構時throw
  * @param {Boolean} [opt.useCache=false] 輸入是否使用select快取，快取只反映本實例之寫入，不反映同一程序之其他實例或其他程序之寫入，故僅適用於同一資料表只由本實例存取之情形；delAll一律直讀資料庫而不經快取，預設false
- * @param {Boolean} [opt.autoGenPk=true] 輸入insert與save於數據未帶主鍵(本套件為id欄位，僅undefined、null、空字串視為未帶)時是否自動產生主鍵值，預設true；給false代表主鍵改由呼叫端自備，套件不產生亦不檢查其唯一性，未帶主鍵者將reject；給了而非字串者不隨此選項改變，一律拒絕(見主鍵之未帶與給了)。選項值不可讀(已撤銷之Proxy等)者建構時throw(invalid opt.autoGenPk: must be a readable value)，非布林之可讀值依預設
+ * @param {Boolean} [opt.autoGenPk=true] 輸入insert與save於數據未帶主鍵(本套件為id欄位，僅undefined、null、空字串視為未帶)時是否自動產生主鍵值，預設true；給false代表主鍵改由呼叫端自備，套件不產生亦不檢查其唯一性，未帶主鍵者將reject；給了而非字串者不隨此選項改變，一律拒絕(見主鍵之未帶與給了)。選項值不可讀(已撤銷之Proxy、拋錯之存取器等)者建構時throw(invalid opt.autoGenPk: must be a readable value)，非布林之可讀值依預設
  * @param {Boolean} [opt.logDetail=false] 輸入是否還原診斷輸出為含錯誤原文之完整細節(儲存位置仍遮罩)，僅true生效，預設false
  * @param {Function} [opt.funLog] 輸入診斷輸出用函數(label, safe, detail)，給予時診斷輸出只交給它而不寫console，safe為不含個資之摘要，detail為完整細節之遮罩拷貝，僅函數生效，預設無；其拋錯與回傳之reject皆被吞下，不影響操作
  * @returns {Object} 回傳操作資料庫物件，各事件功能詳見說明
@@ -158,17 +159,14 @@ function WOrmLmdb(opt = {}) {
         }
     }
 
-    //getOptVal, 取opt之成員值(R-READABLE-01): opt本身讀取拋錯而經chkReadable判為不可讀者(已撤銷之Proxy、get陷阱與Symbol.toStringTag拋錯者)為建構時同步throw(固定詞彙);
-    //其餘拋錯(成員為存取器而拋錯, chkReadable不呼叫存取器)維持原錯誤
+    //getOptVal, 取opt之成員值(R-READABLE-01, 全族口徑A1與A2): 讀取拋錯一律為建構時同步throw之固定詞彙, 不轉出使用端物件(存取器、Proxy陷阱)拋出之文字:
+    //opt本身不可讀(經chkReadable判定: 已撤銷之Proxy、get陷阱與Symbol.toStringTag拋錯者)為invalid opt; 容器可讀而該成員為拋錯之存取器(chkReadable不呼叫存取器)為invalid opt.&lt;名>
     let getOptVal = (name) => {
         try {
             return get(opt, name)
         }
         catch (err) {
-            if (chkReadable(opt) !== '') {
-                throw new Error('invalid opt: must be a readable value')
-            }
-            throw err
+            throw new Error(chkReadable(opt) !== '' ? 'invalid opt: must be a readable value' : `invalid opt.${name}: must be a readable value`)
         }
     }
 
@@ -246,6 +244,14 @@ function WOrmLmdb(opt = {}) {
     let mkErr = (msg) => {
         let err = new Error(msg)
         ownErrs.add(err)
+        return err
+    }
+
+    //inErrs, 入口階段之拒絕(呼叫端給的值不可讀)而於整批之主try內才檢出者(mkInErr建立): 其error事件之data為null, 不把不可讀之值交給訂閱函數(全族口徑A4)
+    let inErrs = new WeakSet()
+    let mkInErr = (msg) => {
+        let err = mkErr(msg)
+        inErrs.add(err)
         return err
     }
 
@@ -372,7 +378,8 @@ function WOrmLmdb(opt = {}) {
     //去重類呼叫端將把每筆判為未存在而fail-open, 整批重送下游昂貴動作
     let procClosed = (mode, data) => {
         let msg = getClosedMsg(mode)
-        emitError(mode, data, msg)
+        //error事件之data為輸入數據; 資料容器本身不可讀者(已撤銷之Proxy等)傳null, 不把不可讀之值交給訂閱函數(全族口徑A4)
+        emitError(mode, isUnreadableData(data) ? null : data, msg)
         return Promise.reject(new Error(msg))
     }
 
@@ -424,7 +431,7 @@ function WOrmLmdb(opt = {}) {
         return String(err)
     }
 
-    //getUnreadableMsg, 呼叫端給的值不可讀(經chkReadable判定)之固定詞彙(R-READABLE-01), 不含原例外文字與值; name為該輸入之名稱(data、data[k]、option、option.returnList、pk等)
+    //getUnreadableMsg, 呼叫端給的值不可讀(經chkReadable判定或讀取拋錯)之固定詞彙(R-READABLE-01), 不含原例外文字與值; name為該輸入之名稱(data、option、option.&lt;鍵>、pk等)
     let getUnreadableMsg = (name) => {
         return `invalid ${name}: must be a readable value`
     }
@@ -437,17 +444,14 @@ function WOrmLmdb(opt = {}) {
         return Promise.reject(res)
     }
 
-    //getOpt, 取呼叫端給的option之成員值(R-READABLE-01): option本身讀取拋錯而經chkReadable判為不可讀者(已撤銷之Proxy、get陷阱與Symbol.toStringTag拋錯者)拋固定詞彙之本套件錯誤;
-    //其餘拋錯(成員為存取器而拋錯, chkReadable不呼叫存取器)維持原錯誤往外拋, 由呼叫端之失敗通道處置
+    //getOpt, 取呼叫端給的option之成員值(R-READABLE-01, 全族口徑A1與A2): 讀取拋錯一律拋固定詞彙之本套件錯誤, 不轉出使用端物件(存取器、Proxy陷阱)拋出之文字:
+    //option本身不可讀(經chkReadable判定: 已撤銷之Proxy、get陷阱與Symbol.toStringTag拋錯者)為invalid option; 容器可讀而該成員為拋錯之存取器(chkReadable不呼叫存取器)為invalid option.&lt;鍵>
     let getOpt = (option, key) => {
         try {
             return get(option, key)
         }
         catch (err) {
-            if (chkReadable(option) !== '') {
-                throw mkErr(getUnreadableMsg('option'))
-            }
-            throw err
+            throw mkErr(getUnreadableMsg(chkReadable(option) !== '' ? 'option' : `option.${key}`))
         }
     }
 
@@ -467,32 +471,57 @@ function WOrmLmdb(opt = {}) {
     //isUnreadableData, data(insert、insertBulk、save、del之資料容器)經判斷函數(iseobj、isearr)判為無效後之可讀性探針(R-READABLE-01), 回傳true為不可讀:
     //已撤銷之Proxy、ownKeys等陷阱拋錯者、Symbol.toStringTag拋錯者、陣列之長度或[0]讀取拋錯者; 探針只置於判斷為無效之後(有效輸入不多讀);
     //chkReadable不呼叫存取器, isearr所讀之[0]為存取器而拋錯者於此自讀(僅陣列長度為1時)
+    //整個探針包於try: 其後之讀取(標籤、長度、[0])拋錯者(如有狀態之存取器, 通過chkReadable之首次讀取後才拋錯)亦為不可讀, 不得讓拋出之文字逸出(全族口徑A2)
     let isUnreadableData = (data) => {
+        try {
 
-        //標籤、陣列之長度與[0](isearr之讀取)
-        if (chkReadable(data, { elements: 'first' }) !== '') {
-            return true
-        }
-
-        //自有鍵與原型鏈(iseobj之for...in讀取)只於標籤為[object Object]時讀取: 型別陣列、Buffer等非物件者iseobj不列舉其鍵, 此處亦不可列舉其全部索引(誤傳大型二進位資料時之無謂耗用)
-        if (Object.prototype.toString.call(data) === '[object Object]' &amp;&amp; chkReadable(data, { ownKeys: true }) !== '') {
-            return true
-        }
-
-        if (Array.isArray(data) &amp;&amp; data.length === 1) {
-            try {
-                data[0] // eslint-disable-line no-unused-expressions
-            }
-            catch (err) {
+            //標籤、陣列之長度與[0](isearr之讀取)
+            if (chkReadable(data, { elements: 'first' }) !== '') {
                 return true
             }
+
+            //自有鍵與原型鏈(iseobj之for...in讀取)只於標籤為[object Object]時讀取: 型別陣列、Buffer等非物件者iseobj不列舉其鍵, 此處亦不可列舉其全部索引(誤傳大型二進位資料時之無謂耗用)
+            if (Object.prototype.toString.call(data) === '[object Object]' &amp;&amp; chkReadable(data, { ownKeys: true }) !== '') {
+                return true
+            }
+
+            if (Array.isArray(data) &amp;&amp; data.length === 1) {
+                data[0] // eslint-disable-line no-unused-expressions
+            }
+            return false
         }
-        return false
+        catch (err) {
+            return true
+        }
+    }
+
+    //getIdIn, 讀取資料列(複製後之複本)之id: cloneDeep只複製自有鍵, 類別實例之原型上之存取器(getter)留在複本上而於此才被讀取,
+    //其拋錯者為呼叫端給的值不可讀, 轉固定詞彙invalid data: must be a readable value(全族口徑A2與A3, 不轉出存取器拋出之文字), 屬入口階段之拒絕(mkInErr: error事件之data為null)
+    let getIdIn = (v) => {
+        try {
+            return get(v, 'id')
+        }
+        catch (err) {
+            throw mkInErr(getUnreadableMsg('data'))
+        }
     }
 
     //procUnreadableData, data不可讀之整批性錯誤(R-READABLE-01)
     let procUnreadableData = (mode) => {
         return rejectIn(mode, mkErr(getUnreadableMsg('data')))
+    }
+
+    //cloneIn, 資料複製階段(insert、insertBulk、save、del於data通過判斷函數後之cloneDeep, R-READABLE-01, 全族口徑A3): 回傳{ ok: true, data: 複本 }, 或{ ok: false, res: reject之Promise };
+    //複製處(cloneDeep)拋錯者(巢狀不可讀值: 資料內之id、列之成員、陣列元素、二進位欄位等為已撤銷之Proxy或拋錯之存取器、陷阱拋錯之Proxy; 可讀而無法複製者; 過深之巢狀之引擎堆疊溢位)
+    //一律走與頂層不可讀相同之入口階段失敗通道(procUnreadableData: error事件恰一次且data為null後reject, 不寫入、不重設快取), 固定詞彙invalid data: must be a readable value,
+    //複製處之catch不分辨原因、不轉出拋出者之文字
+    let cloneIn = (mode, data) => {
+        try {
+            return { ok: true, data: cloneDeep(data) }
+        }
+        catch (err) {
+            return { ok: false, res: procUnreadableData(mode) }
+        }
     }
 
     //isNoPk, 未帶主鍵: 僅undefined、null與空字串(含鍵不存在), 以===比對而不呼叫被檢測值之任何方法或陷阱;
@@ -509,23 +538,24 @@ function WOrmLmdb(opt = {}) {
     let procPk = (data, fnName) => {
         each(data, function(v, k) {
             if (!isobj(v)) {
-                //v為呼叫端給的值: isobj回false後以chkReadable分辨「不可讀」與「非物件」(R-READABLE-01)
+                //v為呼叫端給的值: isobj回false後以chkReadable分辨「不可讀」與「非物件」(R-READABLE-01);
+                //v為資料複製後之複本之元素, 僅「複製後型別標籤才變為不可讀」者(如原型上之一次性Symbol.toStringTag存取器)可達; 與頂層不可讀同一固定詞彙與通道(invalid data, error事件之data為null, 全族口徑A3與A4)
                 if (chkReadable(v) !== '') {
-                    throw mkErr(getUnreadableMsg(`data[${k}]`))
+                    throw mkInErr(getUnreadableMsg('data'))
                 }
                 throw mkErr(`can not ${fnName} by data[${k}] which is not an object`)
             }
         })
         if (autoGenPk) {
             return map(data, function(v) {
-                if (isNoPk(v.id)) {
+                if (isNoPk(getIdIn(v))) {
                     v.id = genIDSeq()
                 }
                 return v
             })
         }
         each(data, function(v, k) {
-            if (isNoPk(get(v, 'id'))) {
+            if (isNoPk(getIdIn(v))) {
                 throw mkErr(`can not ${fnName} by data[${k}] without valid id when autoGenPk is false`)
             }
         })
@@ -550,7 +580,7 @@ function WOrmLmdb(opt = {}) {
     //2.同一筆主鍵先於資料; 資料(chkOrmData)檢鍵名與字串值(含巢狀物件、陣列、Map、Set、Error與RegExp之文字)之孤立代理字元, 值與鍵名之NUL不拒
     //3.不隨autoGenPk改變: 如實存放性檢核, 非格式偏好(同keyFits)
     let getWellFormedMsg = (v, k) => {
-        let r = chkPk(v.id)
+        let r = chkPk(getIdIn(v))
         if (r !== null) {
             return `invalid id: ${r} at [data[${k}].id]`
         }
@@ -765,9 +795,9 @@ function WOrmLmdb(opt = {}) {
      * 插入數據
      *
      * @memberOf WOrmLmdb
-     * @param {Object|Array} data 輸入數據物件或陣列；id給了而非字串者整批reject(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者整批reject(invalid data: must be a readable value)
-     * @param {Object} [option={}] 輸入設定物件，預設為{}；讀取即拋錯者(如已撤銷之Proxy)整批reject(invalid option: must be a readable value)
-     * @param {Boolean} [option.returnList=false] 輸入是否改回傳逐筆結果布林值，預設false；非布林值忽略並用預設，讀取即拋錯者整批reject(invalid option.returnList: must be a readable value)。給true時回傳與輸入等長保序之陣列，各筆為{n,nInserted,ok}，nInserted為1即該筆為新增；聚合計數只回答有幾筆是新的，逐筆結果方能回答是哪幾筆，供下游僅對新資料執行昂貴動作。回傳形式由呼叫點靜態決定，共用之結果處理程式碼不可跨不同取值之呼叫點混用
+     * @param {Object|Array} data 輸入數據物件或陣列；id給了而非字串者整批reject(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)
+     * @param {Object} [option={}] 輸入設定物件，預設為{}；讀取即拋錯者(如已撤銷之Proxy)整批reject(invalid option: must be a readable value)，其成員為拋錯之存取器者同樣轉固定詞彙(invalid option.&lt;鍵>: must be a readable value，不轉出存取器拋出之文字)
+     * @param {Boolean} [option.returnList=false] 輸入是否改回傳逐筆結果布林值，預設false；非布林值忽略並用預設，讀取即拋錯者(含存取器拋錯)整批reject(invalid option.returnList: must be a readable value)。給true時回傳與輸入等長保序之陣列，各筆為{n,nInserted,ok}，nInserted為1即該筆為新增；聚合計數只回答有幾筆是新的，逐筆結果方能回答是哪幾筆，供下游僅對新資料執行昂貴動作。回傳形式由呼叫點靜態決定，共用之結果處理程式碼不可跨不同取值之呼叫點混用
      * @returns {Promise} 回傳Promise，resolve依returnList回傳插入結果：預設回傳聚合物件{n,nInserted,ok}，n為輸入筆數、nInserted為實際插入筆數；returnList為true時回傳逐筆陣列，各筆n恆為1(主鍵命中或經插入)、ok恆為1(insert之錯誤皆屬整批性而reject，不進逐筆)；reject回傳錯誤訊息。整批性錯誤(實例已關閉、autoGenPk為false而未帶主鍵、id給了而非字串[invalid id: not a string at [data[k].id]]、輸入不可讀[invalid data、invalid option或invalid option.returnList: must be a readable value]、數據元素非物件、主鍵含NUL或孤立代理字元[invalid id: 原因 at [data[k].id]]、資料之鍵名或字串值含孤立代理字元[invalid data: 原因 at [data[k].路徑]]、主鍵經LMDB鍵編碼後超過1978位元組、數據無法序列化)皆於任何寫入之前檢出而reject，不寫入任何一筆
      */
     async function insert(data, option = {}) {
@@ -804,12 +834,16 @@ function WOrmLmdb(opt = {}) {
             }
         }
 
+        //cloneDeep, 與外部數據脫勾; 無法複製之輸入(巢狀不可讀值、過深之巢狀等)同屬整批性錯誤, 一律依入口階段之失敗通道(見cloneIn: error事件恰一次且data為null後reject), 於任何寫入之前
+        let dc = cloneIn('insert', data)
+        if (!dc.ok) {
+            return dc.res
+        }
+        data = dc.data
+
         //res
         let res = null
         try {
-
-            //cloneDeep, 與外部數據脫勾; 置於try內, 無法複製之輸入(如過深之巢狀、取值拋錯之getter)同屬整批性錯誤而先發出error事件
-            data = cloneDeep(data)
 
             //check
             if (!isarr(data)) {
@@ -875,6 +909,11 @@ function WOrmLmdb(opt = {}) {
         catch (err) {
             isErr = true
             res = outErr(err)
+
+            //入口階段之拒絕(元素不可讀, mkInErr): error事件之data為null
+            if (inErrs.has(err)) {
+                data = null
+            }
         }
 
         //update, 不能保證插入多少, 一律重設快取
@@ -905,7 +944,7 @@ function WOrmLmdb(opt = {}) {
      * 提供本函數係為與其他w-orm系列套件維持同一組函數，令呼叫端得於各套件間替換而不須改寫呼叫
      *
      * @memberOf WOrmLmdb
-     * @param {Object|Array} data 輸入數據物件或陣列；id給了而非字串者整批reject(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者整批reject(invalid data: must be a readable value)
+     * @param {Object|Array} data 輸入數據物件或陣列；id給了而非字串者整批reject(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)
      * @returns {Promise} 回傳Promise，resolve回傳插入結果物件{n,nInserted,ok}，n為輸入筆數、nInserted成功時恆等於n，任一筆主鍵已存在則reject回傳錯誤訊息；主鍵含NUL或孤立代理字元、資料之鍵名或字串值含孤立代理字元者同insert整批reject
      */
     async function insertBulk(data) {
@@ -929,6 +968,13 @@ function WOrmLmdb(opt = {}) {
             }
         }
 
+        //cloneDeep, 與外部數據脫勾; 無法複製之輸入(巢狀不可讀值、過深之巢狀等)同屬整批性錯誤, 一律依入口階段之失敗通道(見cloneIn: error事件恰一次且data為null後reject), 於任何寫入之前
+        let dc = cloneIn('insertBulk', data)
+        if (!dc.ok) {
+            return dc.res
+        }
+        data = dc.data
+
         //res
         let res = null
 
@@ -936,9 +982,6 @@ function WOrmLmdb(opt = {}) {
         let pkConflict = null
 
         try {
-
-            //cloneDeep, 與外部數據脫勾; 置於try內, 無法複製之輸入同屬整批性錯誤而先發出error事件
-            data = cloneDeep(data)
 
             //check
             if (!isarr(data)) {
@@ -988,6 +1031,11 @@ function WOrmLmdb(opt = {}) {
             isErr = true
             res = outErr(err)
 
+            //入口階段之拒絕(元素不可讀, mkInErr): error事件之data為null
+            if (inErrs.has(err)) {
+                data = null
+            }
+
             //入口通過後才close者, childTransaction之回調延後執行而遇關閉, lmdb回報Database is closed,
             //統一為已關閉之訊息(T4: 訊息明示closed); 主鍵衝突者交易已實際執行, 保留其衝突訊息
             if (isClosed() &amp;&amp; !isestr(pkConflict)) {
@@ -1025,9 +1073,9 @@ function WOrmLmdb(opt = {}) {
      * 存入內容為輸入經LMDB編碼器往返後之結果，型別與欄名之保真範圍同insert與預設save(如Set讀回為陣列，自有欄名__proto__與__proto_會併為一鍵)
      *
      * @memberOf WOrmLmdb
-     * @param {Object|Array} data 輸入數據物件或陣列；id給了而非字串者該筆ok為0並附err(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者整批reject(invalid data: must be a readable value)
-     * @param {Object} [option={}] 輸入設定物件，預設為{}；讀取即拋錯者(如已撤銷之Proxy)整批reject(invalid option: must be a readable value)
-     * @param {boolean} [option.autoInsert=true] 輸入是否於儲存時發現原本無數據，則自動改以插入處理，預設為true；merge為false時同樣適用，已有數據者不受影響
+     * @param {Object|Array} data 輸入數據物件或陣列；id給了而非字串者該筆ok為0並附err(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)
+     * @param {Object} [option={}] 輸入設定物件，預設為{}；讀取即拋錯者(如已撤銷之Proxy)整批reject(invalid option: must be a readable value)，其成員(autoInsert、merge)為拋錯之存取器者同樣轉固定詞彙(invalid option.&lt;鍵>: must be a readable value，不轉出存取器拋出之文字；error事件恰一次且data為null，不寫入)
+     * @param {boolean} [option.autoInsert=true]輸入是否於儲存時發現原本無數據，則自動改以插入處理，預設為true；merge為false時同樣適用，已有數據者不受影響
      * @param {boolean} [option.merge=true] 輸入已有數據時是否將輸入深層合併進既有數據，預設為true；僅嚴格給false才改為整筆覆寫(存入者恰為該筆輸入之內容)，其餘值(含null、0、'false')一律視同true。覆寫時[內容相同不寫入]之基準為輸入與既有數據相同
      * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之儲存結果陣列，各筆為{n,nInserted,nModified,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗者(如主鍵含NUL或孤立代理字元[invalid id: 原因 at [data[k].id]]、資料之鍵名或字串值含孤立代理字元[invalid data: 原因 at [data[k].路徑]]、須插入而主鍵超過上述上限、數據無法序列化)ok為0並附err，reject回傳錯誤訊息；數據元素非物件等整批性錯誤於任何寫入之前reject；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已處理之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認
      */
@@ -1048,19 +1096,27 @@ function WOrmLmdb(opt = {}) {
             return []
         }
 
-        //autoInsert, option為呼叫端給的值: option不可讀(已撤銷之Proxy等)者依原失敗通道(error事件恰一次後reject, 不寫入)以固定詞彙拒絕(R-READABLE-01);
-        //值不經判斷函數而以真假值使用, 未給為true
+        //autoInsert與isOverwrite, option為呼叫端給的值: option不可讀(已撤銷之Proxy等)或其成員為拋錯之存取器者依原失敗通道(error事件恰一次且data為null後reject, 不寫入)以固定詞彙拒絕(R-READABLE-01, 全族口徑A1與A2);
+        //autoInsert值不經判斷函數而以真假值使用, 未給為true;
+        //isOverwrite: option.merge嚴格等於false者為整筆覆寫, 其餘(未給、true與非布林值)維持深層合併; 覆寫會丟棄舊記錄中不在新記錄內之鍵, 屬較具破壞性之一方, 故不採autoInsert之真假值判定;
+        //選項取值拋錯屬整批性錯誤而先發出error事件(T10.3), 且於任何寫入之前
         let autoInsert = true
+        let isOverwrite = false
         try {
             let v = getOpt(option, 'autoInsert')
             autoInsert = v === undefined ? true : v
+            isOverwrite = getOpt(option, 'merge') === false
         }
         catch (err) {
             return rejectIn('save', err)
         }
 
-        //isOverwrite, 是否整筆覆寫, 於下方try內判定
-        let isOverwrite = false
+        //cloneDeep, 與外部數據脫勾; 無法複製之輸入(巢狀不可讀值、過深之巢狀等)同屬整批性錯誤, 一律依入口階段之失敗通道(見cloneIn: error事件恰一次且data為null後reject), 於任何寫入之前
+        let dc = cloneIn('save', data)
+        if (!dc.ok) {
+            return dc.res
+        }
+        data = dc.data
 
         //res
         let res = null
@@ -1069,14 +1125,6 @@ function WOrmLmdb(opt = {}) {
         let evs = []
 
         try {
-
-            //isOverwrite, option.merge嚴格等於false者為整筆覆寫, 其餘(未給、true與非布林值)維持深層合併;
-            //覆寫會丟棄舊記錄中不在新記錄內之鍵, 屬較具破壞性之一方, 故不採autoInsert之真假值判定;
-            //置於try內, 選項取值拋錯(如getter)同屬整批性錯誤而先發出error事件(T10.3), 且於任何寫入之前
-            isOverwrite = getOpt(option, 'merge') === false
-
-            //cloneDeep, 與外部數據脫勾; 置於try內, 無法複製之輸入同屬整批性錯誤而先發出error事件
-            data = cloneDeep(data)
 
             //check
             if (!isarr(data)) {
@@ -1281,6 +1329,11 @@ function WOrmLmdb(opt = {}) {
         catch (err) {
             isErr = true
             res = outErr(err)
+
+            //入口階段之拒絕(元素不可讀, mkInErr): error事件之data為null
+            if (inErrs.has(err)) {
+                data = null
+            }
         }
 
         //update, 不能保證變更多少, 一律重設快取
@@ -1311,7 +1364,7 @@ function WOrmLmdb(opt = {}) {
      * 刪除數據
      *
      * @memberOf WOrmLmdb
-     * @param {Object|Array} data 輸入數據物件或陣列；id非字串(含未給)者該筆ok為0並附err，讀取即拋錯者整批reject(invalid data: must be a readable value)
+     * @param {Object|Array} data 輸入數據物件或陣列；id非字串(含未給)者該筆ok為0並附err，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)
      * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之刪除結果陣列，各筆為{n,nDeleted,ok}，n為主鍵命中筆數(主鍵經LMDB鍵編碼後超過1978位元組者視為未命中)，單筆失敗或未給有效id者(id未給、非字串、空字串、含NUL或孤立代理字元，err為invalid id: 原因 at [data[k].id]，不回顯值)ok為0並附err，reject回傳錯誤訊息；處理中途發生整批性錯誤(如操作進行中被close)時整批reject，先前已刪除之筆不回滾且其逐筆事件不發出，呼叫端須重新讀取確認
      */
     async function del(data) {
@@ -1331,6 +1384,13 @@ function WOrmLmdb(opt = {}) {
             return []
         }
 
+        //cloneDeep, 與外部數據脫勾; 無法複製之輸入(巢狀不可讀值、過深之巢狀等)同屬整批性錯誤, 一律依入口階段之失敗通道(見cloneIn: error事件恰一次且data為null後reject), 於任何刪除之前
+        let dc = cloneIn('del', data)
+        if (!dc.ok) {
+            return dc.res
+        }
+        data = dc.data
+
         //res
         let res = null
 
@@ -1339,13 +1399,15 @@ function WOrmLmdb(opt = {}) {
 
         try {
 
-            //cloneDeep, 與外部數據脫勾; 置於try內, 無法複製之輸入同屬整批性錯誤而先發出error事件
-            data = cloneDeep(data)
-
             //check
             if (!isarr(data)) {
                 data = [data]
             }
+
+            //各筆id之讀取先於任何刪除: 類別實例之原型上之存取器拋錯者屬呼叫端給的值不可讀, 整批性之入口階段拒絕(invalid data, 全族口徑A2與A3), 不降為逐筆之原錯誤文字
+            each(data, function(v) {
+                getIdIn(v)
+            })
 
             //pmSeries, 回呼之第二參數為批次索引
             res = await pmSeries(data, async(v, k) => {
@@ -1438,6 +1500,11 @@ function WOrmLmdb(opt = {}) {
         catch (err) {
             isErr = true
             res = outErr(err)
+
+            //入口階段之拒絕(id存取器不可讀, mkInErr): error事件之data為null
+            if (inErrs.has(err)) {
+                data = null
+            }
         }
 
         //update, 不能保證刪除多少, 一律重設快取
@@ -1613,8 +1680,8 @@ function WOrmLmdb(opt = {}) {
      *
      * @memberOf WOrmLmdb
      * @param {String} fpTar 輸入備份目標資料夾路徑字串
-     * @param {Object} [option={}] 輸入設定物件，預設{}；讀取即拋錯者(如已撤銷之Proxy)整批reject(invalid option: must be a readable value)
-     * @param {Boolean} [option.compact=true] 輸入是否於備份時壓實(較慢但檔案較小)，預設true；僅布林值生效，其餘可讀值視同預設，讀取即拋錯者整批reject(invalid option.compact: must be a readable value)
+     * @param {Object} [option={}] 輸入設定物件，預設{}；讀取即拋錯者(如已撤銷之Proxy)整批reject(invalid option: must be a readable value)，其成員為拋錯之存取器者同樣轉固定詞彙(不轉出存取器拋出之文字)
+     * @param {Boolean} [option.compact=true] 輸入是否於備份時壓實(較慢但檔案較小)，預設true；僅布林值生效，其餘可讀值視同預設，讀取即拋錯者(含存取器拋錯)整批reject(invalid option.compact: must be a readable value)
      * @returns {Promise} 回傳Promise，resolve回傳{ok,fpData,size,compact}，fpData為產出之data.mdb絕對路徑，size為其位元組數；reject回傳錯誤訊息
      */
     async function backup(fpTar, option = {}) {
@@ -1805,7 +1872,7 @@ export default WOrmLmdb
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Nov 20 2026 05:29:25 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Nov 20 2026 11:16:47 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
