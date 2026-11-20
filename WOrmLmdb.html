@@ -107,6 +107,10 @@ U+FFFD本身與成對代理(emoji等)為良構，照常接受。既有資料不�
 <p>主鍵(id)之未帶與給了(w-orm系列規則，R-PKGIVEN-01): 只有id為undefined、null、空字串(含鍵不存在)視為未帶，autoGenPk為true時自動產生，為false時整批reject(can not &lt;入口&gt; by data[k] without valid id when autoGenPk is false)；
 給了而非字串(數字、布林、物件、陣列、String包裝物件、Symbol、BigInt、函數、Date等)者一律拒絕，訊息為固定詞彙invalid id: not a string at <a href="%E4%B8%8D%E5%9B%9E%E9%A1%AF%E5%80%BC">data[k].id</a>，不得靜默替換為新主鍵，且不隨autoGenPk改變：
 insert與insertBulk整批reject(error事件恰一次，不寫入任何一筆)、save與del該筆ok為0並附err、selectByPk回null(不reject、不發事件)。</p>
+<p>主鍵只認自有可列舉之資料屬性(w-orm系列規則，R-PKOWN-01): 資料列之id為繼承(原型鏈上，如Object.create({ id })或類別原型上之getter、資料屬性，不論繼承值為字串、數字或物件)或自有不可列舉者，視為未帶：
+autoGenPk為true時補新主鍵(自有可列舉之資料屬性，遮蔽原型上之值)，為false時依未帶整批reject(can not &lt;入口&gt; by data[k] without valid id when autoGenPk is false)；
+繼承值不得被當成主鍵——不跳過、不撞鍵、不覆寫、不刪除庫內與繼承值同值之既有列，亦不寫入缺id欄之列。del對繼承之id視為未給(該筆ok為0並附invalid id: not a string at [data[k].id]，不刪除同值之既有列)。
+判定先以既有路徑取值，值為未帶即短路，只有值為給了才查是否自有可列舉(不呼叫getter、不多讀有效輸入)；selectByPk收純量，不適用。非主鍵欄之繼承欄位之處置不變。</p>
 <p>讀取即拋錯之輸入(w-orm系列規則，R-READABLE-01，wsemi之chkReadable): 呼叫端給的資料容器(data)、選項(opt與option及其成員returnList、compact)與主鍵參數(selectByPk之pk)，其判斷函數判為無效之分支內，
 以chkReadable分辨「不可讀」(已撤銷之Proxy、Symbol.toStringTag拋錯者、ownKeys陷阱拋錯者、長度為1而[0]為存取器且拋錯之陣列)與「可讀而型別不符」：
 不可讀者依各入口原失敗通道拒絕，訊息為固定詞彙invalid &lt;名稱&gt;: must be a readable value(名稱為opt、opt.&lt;名&gt;、data、option、option.&lt;名&gt;、pk；不含原例外文字與值)——
@@ -129,7 +133,7 @@ opt.funLog給函數(label, safe, detail)時診斷輸出改只交給它而不寫c
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line101">line 101</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line106">line 106</a>
     </li></ul></dd>
     
 
@@ -461,7 +465,7 @@ opt.funLog給函數(label, safe, detail)時診斷輸出改只交給它而不寫c
                 </td>
             
 
-            <td class="description last"><p>輸入insert與save於數據未帶主鍵(本套件為id欄位，僅undefined、null、空字串視為未帶)時是否自動產生主鍵值，預設true；給false代表主鍵改由呼叫端自備，套件不產生亦不檢查其唯一性，未帶主鍵者將reject；給了而非字串者不隨此選項改變，一律拒絕(見主鍵之未帶與給了)。選項值不可讀(已撤銷之Proxy、拋錯之存取器等)者建構時throw(invalid opt.autoGenPk: must be a readable value)，非布林之可讀值依預設</p></td>
+            <td class="description last"><p>輸入insert與save於數據未帶主鍵(本套件為id欄位，僅undefined、null、空字串視為未帶)時是否自動產生主鍵值，預設true；給false代表主鍵改由呼叫端自備，套件不產生亦不檢查其唯一性，未帶主鍵者將reject；給了而非字串者不隨此選項改變，一律拒絕(見主鍵之未帶與給了)；id為繼承或自有不可列舉者視為未帶(見主鍵只認自有可列舉之資料屬性)。選項值不可讀(已撤銷之Proxy、拋錯之存取器等)者建構時throw(invalid opt.autoGenPk: must be a readable value)，非布林之可讀值依預設</p></td>
         </tr>
 
     
@@ -651,7 +655,7 @@ string contains NUL、string contains lone surrogate)。已關閉之實例整批
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1640">line 1640</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1673">line 1673</a>
     </li></ul></dd>
     
 
@@ -935,7 +939,7 @@ string contains NUL、string contains lone surrogate)。已關閉之實例整批
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1323">line 1323</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1350">line 1350</a>
     </li></ul></dd>
     
 
@@ -1027,7 +1031,7 @@ string contains NUL、string contains lone surrogate)。已關閉之實例整批
 
             
 
-            <td class="description last"><p>輸入數據物件或陣列；id非字串(含未給)者該筆ok為0並附err，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)</p></td>
+            <td class="description last"><p>輸入數據物件或陣列；id非字串(含未給)者該筆ok為0並附err，id為繼承(原型鏈上)或自有不可列舉者視為未給(同樣ok為0並附invalid id: not a string，不刪除庫內與繼承值同值之列)，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)</p></td>
         </tr>
 
     
@@ -1117,7 +1121,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1515">line 1515</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1548">line 1548</a>
     </li></ul></dd>
     
 
@@ -1295,7 +1299,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line756">line 756</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line783">line 783</a>
     </li></ul></dd>
     
 
@@ -1403,7 +1407,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
                 </td>
             
 
-            <td class="description last"><p>輸入數據物件或陣列；id給了而非字串者整批reject(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)</p></td>
+            <td class="description last"><p>輸入數據物件或陣列；id給了而非字串者整批reject(invalid id: not a string at [data[k].id])而不替換為新主鍵，id為繼承(原型鏈上)或自有不可列舉者視為未帶(autoGenPk為true補新主鍵、為false整批reject，不以繼承值為主鍵)，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)</p></td>
         </tr>
 
     
@@ -1586,7 +1590,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line903">line 903</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line930">line 930</a>
     </li></ul></dd>
     
 
@@ -1678,7 +1682,7 @@ null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $r
 
             
 
-            <td class="description last"><p>輸入數據物件或陣列；id給了而非字串者整批reject(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)</p></td>
+            <td class="description last"><p>輸入數據物件或陣列；id給了而非字串者整批reject(invalid id: not a string at [data[k].id])而不替換為新主鍵，id為繼承(原型鏈上)或自有不可列舉者視為未帶(autoGenPk為true補新主鍵、為false整批reject，不以繼承值為主鍵)，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)</p></td>
         </tr>
 
     
@@ -1751,7 +1755,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1035">line 1035</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line1062">line 1062</a>
     </li></ul></dd>
     
 
@@ -1859,7 +1863,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
                 </td>
             
 
-            <td class="description last"><p>輸入數據物件或陣列；id給了而非字串者該筆ok為0並附err(invalid id: not a string at [data[k].id])而不替換為新主鍵，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)</p></td>
+            <td class="description last"><p>輸入數據物件或陣列；id給了而非字串者該筆ok為0並附err(invalid id: not a string at [data[k].id])而不替換為新主鍵，id為繼承(原型鏈上)或自有不可列舉者視為未帶(autoGenPk為true補新主鍵、為false整批reject，不以繼承值覆寫同值之既有列)，讀取即拋錯者(含巢狀之成員)整批reject(invalid data: must be a readable value)</p></td>
         </tr>
 
     
@@ -2079,7 +2083,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line619">line 619</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line646">line 646</a>
     </li></ul></dd>
     
 
@@ -2258,7 +2262,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line691">line 691</a>
+        <a href="WOrmLmdb.mjs.html">WOrmLmdb.mjs</a>, <a href="WOrmLmdb.mjs.html#line718">line 718</a>
     </li></ul></dd>
     
 
@@ -2415,7 +2419,7 @@ option.merge給false則改為整筆覆寫：各筆於同一個LMDB寫交易內�
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Nov 20 2026 11:16:47 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Nov 20 2026 13:22:42 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
